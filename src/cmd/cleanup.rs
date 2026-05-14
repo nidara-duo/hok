@@ -1,77 +1,64 @@
-#![allow(unused)]
-use clap::{ArgAction, ArgMatches, Parser};
+use clap::Parser;
 use crossterm::style::Stylize;
-use libscoop::{operation, Session};
-use std::{
-    io::{stdout, Write},
-    path::Path,
-    result,
-};
+use libscoop::{operation, package::CleanupOption, Event, Session};
+use std::thread;
 
 use crate::Result;
 
-/// Cleanup apps by removing old versions
+/// Remove old versions of packages
 #[derive(Debug, Parser)]
-#[clap(arg_required_else_help = true)]
 pub struct Args {
-    /// Given named app(s) to be cleaned up
-    #[arg(action = ArgAction::Append)]
-    app: Vec<String>,
-    /// Remove download cache simultaneously
-    #[arg(short = 'k', long, action = ArgAction::SetTrue)]
+    /// App(s) to clean up (`*` to clean all)
+    #[arg(required_unless_present = "all")]
+    apps: Vec<String>,
+
+    /// Clean all apps
+    #[arg(short = 'a', long, conflicts_with = "apps")]
+    all: bool,
+
+    /// Also remove outdated download cache files
+    #[arg(short = 'k', long)]
     cache: bool,
 }
 
 pub fn execute(args: Args, session: &Session) -> Result<()> {
-    let config = session.config();
-    let apps_path = config.root_path().join("apps");
-    // let running_apps = running_apps(&apps_path);
+    let apps = if args.all {
+        vec!["*".to_string()]
+    } else {
+        args.apps
+    };
 
-    let query = args.app.join(" ");
+    let mut options = Vec::new();
+    if args.cache {
+        options.push(CleanupOption::Cache);
+    }
 
-    eprintln!("Not implemented yet.");
+    let rx = session.event_bus().receiver();
+    let handle = thread::spawn(move || {
+        while let Ok(event) = rx.recv() {
+            match event {
+                Event::PackageCleanupStart(name) => {
+                    println!("Cleaning {} ...", name.yellow());
+                }
+                Event::PackageCleanupVersionRemoved(name, version) => {
+                    println!("  {} Removed {} ({})", "✔".green(), name, version);
+                }
+                Event::PackageCleanupAlreadyClean(name) => {
+                    println!("  {} {} is already clean", "✔".green(), name);
+                }
+                Event::PackageCleanupDone => break,
+                _ => continue,
+            }
+        }
+    });
 
-    // for package in packages {
-    //     let name = package.name.as_str();
-    //     let package_path = apps_path.join(name);
-    //     let current_version = package.version();
-    //     let entries = std::fs::read_dir(&package_path)?
-    //         .filter_map(result::Result::ok)
-    //         .filter(|e| {
-    //             let cur_version = e
-    //                 .file_name()
-    //                 .to_str()
-    //                 .map(|s| s != current_version)
-    //                 .unwrap_or(false);
-    //             let current_symlink = e
-    //                 .file_name()
-    //                 .to_str()
-    //                 .map(|s| s == "current")
-    //                 .unwrap_or(false);
-    //             !cur_version && !current_symlink
-    //         })
-    //         .collect::<Vec<_>>();
+    operation::package_cleanup(session, &apps, &options)?;
 
-    //     if entries.is_empty() {
-    //         continue;
-    //     }
+    handle.join().ok();
 
-    //     print!("Cleaning up {}... ", name);
-    //     let _ = stdout().flush();
-    //     for entry in entries {
-    //         let entry_name = entry.file_name();
-    //         let entry_name = entry_name.to_str().unwrap_or_default();
-    //         if entry.file_type().unwrap().is_dir() {
-    //             print!("{}{} ", entry_name, "✓".green());
-    //             let _ = stdout().flush();
-    //         }
-
-    //         remove_dir_all::remove_dir_all(entry.path())?;
-    //     }
-    //     println!("");
-    // }
-
-    // println!("{}", "Everything is shiny now!".green());
+    if args.all || apps.iter().any(|a| a == "*") || apps.len() > 1 {
+        println!("{}", "Everything is shiny now!".green());
+    }
 
     Ok(())
 }

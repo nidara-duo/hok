@@ -150,8 +150,23 @@ pub enum Event {
     /// Package shortcut removal has finished.
     PackageShortcutRemoveDone,
 
+    /// Emitted when starting cleanup of old versions for an app.
+    PackageCleanupStart(String),
+    /// Emitted when an old version directory has been removed.
+    PackageCleanupVersionRemoved(String, String),
+    /// Emitted when an app has no old versions to clean.
+    PackageCleanupAlreadyClean(String),
+    /// Emitted when all cleanup operations have completed.
+    PackageCleanupDone,
+
     /// Package sync operation has finished.
     PackageSyncDone,
+
+    /// No changes needed.
+    PackageNoOp,
+
+    /// Package not found.
+    PackageNotFound(String),
 
     /// Prompt the user to confirm the transaction.
     PromptTransactionNeedConfirm(Transaction),

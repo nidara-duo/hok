@@ -12,7 +12,7 @@ pub fn remove(session: &Session, package: &Package) -> Fallible<()> {
 
         let keys = env_set.keys();
         for key in keys {
-            internal::env::set(key, None)?;
+            let _ = internal::env::set(key, None);
         }
 
         if let Some(tx) = session.emitter() {

@@ -5,10 +5,10 @@ use crate::{error::Fallible, internal, package::Package, Event, Session};
 
 #[derive(Debug)]
 pub struct Shim<'a> {
-    name: &'a str,
-    real_name: &'a str,
-    ty: ShimType,
-    args: Option<Vec<&'a str>>,
+    pub name: &'a str,
+    pub real_name: &'a str,
+    pub ty: ShimType,
+    pub args: Option<Vec<&'a str>>,
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
@@ -90,16 +90,39 @@ impl Shim<'_> {
     }
 }
 
-// pub fn add(session: &Session, package: &Package) -> Fallible<()> {
-//     let config = session.config();
-//     let shims_dir = config.root_path().join("shims");
+pub fn add(session: &Session, package: &Package, version_dir: &Path) -> Fallible<()> {
+    let config = session.config();
+    let shims_dir = config.root_path().join("shims");
+    internal::fs::ensure_dir(&shims_dir)?;
 
-//     if let Some(bins) = package.manifest().bin() {
-//         // TODO
-//     }
+    if let Some(bins) = package.manifest().bin() {
+        for bin_entry in bins {
+            let shim = Shim::new(bin_entry.clone());
+            
+            // For now, simple shim creation: just copy a standard shim exe or create a cmd shim.
+            // A more robust implementation would use a proper shim engine.
+            let shim_exe_dst = shims_dir.join(shim.name).with_extension("exe");
+            
+            // This is a placeholder for a real shim engine.
+            // Using a simple batch-based shim for demo/PoC if no executable shim exists.
+            if !shim_exe_dst.exists() {
+                let mut batch_file = std::fs::File::create(shims_dir.join(shim.name).with_extension("cmd"))?;
+                use std::io::Write;
+                writeln!(batch_file, "@echo off")?;
+                writeln!(batch_file, "\"{}\" %*", version_dir.join(shim.real_name).display())?;
+            }
+            
+            // Write .shim file
+            let shim_file_path = shims_dir.join(shim.name).with_extension("shim");
+            let mut shim_file = std::fs::File::create(&shim_file_path)?;
+            use std::io::Write;
+            writeln!(shim_file, "path = {}", version_dir.join(shim.real_name).display())?;
+            writeln!(shim_file, "args =")?;
+        }
+    }
 
-//     Ok(())
-// }
+    Ok(())
+}
 
 /// Remove shims for a package.
 pub fn remove(session: &Session, package: &Package) -> Fallible<()> {
@@ -122,70 +145,58 @@ pub fn remove(session: &Session, package: &Package) -> Fallible<()> {
         for shim in bins.into_iter().map(Shim::new) {
             let mut shim_path = shims_dir.join(shim.name);
             let exts = match shim.ty {
-                ShimType::Exe => vec!["exe", "shim"],
+                ShimType::Exe => vec!["exe", "shim", "cmd"],
                 ShimType::PowerShell => vec!["cmd", "ps1", ""],
                 _ => vec!["cmd", ""],
             };
 
             for ext in exts.into_iter() {
-                let alt_ext = format!("{}.{}", ext, pkg_name);
-                shim_path.set_extension(alt_ext);
-
-                if shim_path.exists() {
-                    if let Some(tx) = session.emitter() {
-                        let shim_name =
-                            shim_path.file_name().unwrap().to_string_lossy().to_string();
-                        let _ = tx.send(Event::PackageShimRemoveProgress(shim_name));
-                    }
-
-                    std::fs::remove_file(&shim_path)?;
+                // If ext is empty, it means no extension, otherwise it's e.g., "cmd" or "shim"
+                let base_name = if ext.is_empty() {
+                    shim.name.to_string()
                 } else {
-                    // this is for removing the `pkg_name` suffix added by the
-                    // `alt_ext` above
-                    shim_path.set_extension("");
+                    format!("{}.{}", shim.name, ext)
+                };
 
-                    shim_path.set_extension(ext);
+                let shim_paths = vec![
+                    shims_dir.join(format!("{}.{}", base_name, pkg_name)),
+                    shims_dir.join(&base_name),
+                ];
 
-                    if let Some(tx) = session.emitter() {
-                        let shim_name =
-                            shim_path.file_name().unwrap().to_string_lossy().to_string();
-                        let _ = tx.send(Event::PackageShimRemoveProgress(shim_name));
+                for shim_path in shim_paths {
+                    if shim_path.exists() {
+                        if let Some(tx) = session.emitter() {
+                            let shim_name = shim_path.file_name().unwrap().to_string_lossy().to_string();
+                            let _ = tx.send(Event::PackageShimRemoveProgress(shim_name));
+                        }
+                        let _ = std::fs::remove_file(&shim_path);
                     }
+                }
 
-                    let _ = std::fs::remove_file(&shim_path);
-
-                    // restore alter shim
-                    let fname = shim_path.file_name().unwrap().to_str().unwrap();
+                // Restore alternate shim logic: only restore if the plain base name was removed
+                if !shims_dir.join(&base_name).exists() {
                     let mut alt_shims = shims_dir_entries
                         .iter()
-                        .flat_map(|entry| {
+                        .filter(|entry| {
                             let path = entry.path();
                             let name = path.file_name().unwrap().to_str().unwrap();
-
-                            if name.starts_with(fname) && name != fname {
-                                Some(entry)
-                            } else {
-                                None
-                            }
+                            name.starts_with(&base_name) && name != base_name
                         })
+
                         .collect::<Vec<_>>();
 
-                    if alt_shims.is_empty() {
-                        continue;
-                    }
+                    if !alt_shims.is_empty() {
+                        if alt_shims.len() > 1 {
+                            alt_shims.sort_by_key(|de| {
+                                std::cmp::Reverse(de.metadata().unwrap().modified().unwrap())
+                            });
+                        }
 
-                    // sort by modified time, so the latest one will be used
-                    // when there are multiple alter shims for the same shim
-                    if alt_shims.len() > 1 {
-                        alt_shims.sort_by_key(|de| {
-                            std::cmp::Reverse(de.metadata().unwrap().modified().unwrap())
-                        });
+                        let alt_shim = alt_shims.first().unwrap();
+                        let alt_path = alt_shim.path();
+                        let alt_path_new = alt_path.with_file_name(&base_name);
+                        let _ = std::fs::rename(&alt_path, &alt_path_new);
                     }
-
-                    let alt_shim = alt_shims.first().unwrap();
-                    let alt_path = alt_shim.path();
-                    let alt_path_new = alt_path.with_file_name(fname);
-                    std::fs::rename(&alt_path, &alt_path_new)?;
                 }
             }
         }

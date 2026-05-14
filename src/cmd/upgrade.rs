@@ -67,7 +67,7 @@ pub fn execute(args: Args, session: &Session) -> Result<()> {
 
     let mut dlprogress = cui::MultiProgressUI::new();
 
-    let handle = std::thread::spawn(move || {
+    let handle = std::thread::spawn(move || -> Result<()> {
         while let Ok(event) = rx.recv() {
             match event {
                 Event::PackageResolveStart => println!("Resolving packages..."),
@@ -79,7 +79,6 @@ pub fn execute(args: Args, session: &Session) -> Result<()> {
                     let filename = ctx.filename.to_owned();
                     let dltotal = ctx.dltotal;
                     let dlnow = ctx.dlnow;
-
                     dlprogress.update(ident, url, filename, dltotal, dlnow);
                 }
                 Event::PackageDownloadDone => {}
@@ -102,7 +101,24 @@ pub fn execute(args: Args, session: &Session) -> Result<()> {
                         .unwrap();
                     println!("Checking package integrity...{}", "Ok".green());
                 }
+                Event::PackageNotFound(name) => {
+                    println!("Package '{}' not found.", name);
+                    return Ok(());
+                }
+                Event::PackageNoOp => {
+                    println!("Already up to date.");
+                }
                 Event::PromptTransactionNeedConfirm(transaction) => {
+                    let has_install = transaction.install_view().is_some();
+                    let has_upgrade = transaction.upgrade_view().is_some();
+                    let has_replace = transaction.replace_view().is_some();
+
+                    if !has_install && !has_upgrade && !has_replace {
+                        println!("Already up to date.");
+                        let _ = tx.send(Event::PromptTransactionNeedConfirmResult(false));
+                        continue;
+                    }
+
                     if let Some(install) = transaction.install_view() {
                         println!("The following packages will be INSTALLED:");
                         let output = install
@@ -121,7 +137,7 @@ pub fn execute(args: Args, session: &Session) -> Result<()> {
                     }
 
                     if let Some(upgrade) = transaction.upgrade_view() {
-                        if transaction.install_view().is_some() {
+                        if has_install {
                             println!();
                         }
                         println!("The following packages will be UPGRADED:");
@@ -129,10 +145,10 @@ pub fn execute(args: Args, session: &Session) -> Result<()> {
                             .iter()
                             .map(|p| {
                                 format!(
-                                    "{}{}{}",
-                                    p.ident(),
-                                    "-".dark_grey(),
-                                    p.upgradable_version().unwrap().dark_grey(),
+                                    "{}: {} -> {}",
+                                    p.name(),
+                                    p.installed_version().unwrap().dark_grey(),
+                                    p.upgradable_version().unwrap().green(),
                                 )
                             })
                             .collect::<Vec<_>>()
@@ -141,9 +157,7 @@ pub fn execute(args: Args, session: &Session) -> Result<()> {
                     }
 
                     if let Some(replace) = transaction.replace_view() {
-                        if transaction.install_view().is_some()
-                            || transaction.upgrade_view().is_some()
-                        {
+                        if has_install || has_upgrade {
                             println!();
                         }
                         println!("The following packages will be REPLACED:");
@@ -189,14 +203,14 @@ pub fn execute(args: Args, session: &Session) -> Result<()> {
                 _ => {}
             }
         }
+        Ok(())
     });
 
     operation::package_sync(session, queries, options)?;
 
-    handle.join().unwrap();
+    handle.join().unwrap()?;
 
     let _ = stdout.execute(cursor::Show);
 
-    eprintln!("Not implemented yet.");
     Ok(())
 }

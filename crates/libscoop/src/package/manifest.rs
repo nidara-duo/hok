@@ -1236,6 +1236,10 @@ pub struct InstallInfo {
 }
 
 impl InstallInfo {
+    pub fn new(architecture: String, bucket: Option<String>, hold: Option<bool>, url: Option<String>) -> Self {
+        Self { architecture, bucket, hold, url }
+    }
+
     pub fn parse<P: AsRef<Path>>(path: P) -> Fallible<InstallInfo> {
         let path = path.as_ref();
         let mut bytes = Vec::new();

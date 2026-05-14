@@ -1,4 +1,3 @@
-#![allow(unused)]
 //! This crate aims to provide a full-featured, practical, and efficient Rust
 //! reimplementation of [Scoop], the Windows command-line installer. It is a
 //! library crate providing the core functionality of interacting with Scoop,
@@ -40,16 +39,22 @@ mod env;
 mod error;
 mod event;
 mod internal;
-mod package;
+pub mod package;
 mod persist;
 mod psmodule;
+pub mod operation;
 mod session;
 mod shim;
 mod shortcut;
-
-pub mod operation;
+pub mod status;
 
 pub use error::Error;
 pub use event::Event;
-pub use package::{QueryOption, SyncOption};
+pub use package::{CleanupOption, QueryOption, SyncOption};
 pub use session::Session;
+pub use status::{
+    collect_status,
+    StatusEntry,
+    StatusInfoFlag,
+    StatusReport,
+};

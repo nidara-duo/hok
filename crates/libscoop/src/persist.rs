@@ -20,8 +20,18 @@ pub fn unlink(session: &Session, package: &Package) -> Fallible<()> {
             assert!(!persist.is_empty());
 
             let src = internal::path::normalize_path(persist_path.join(persist[0]));
-            internal::fs::remove_symlink(src)?;
+            let _ = internal::fs::remove_symlink(src);
         }
+    }
+    Ok(())
+}
+
+pub(crate) fn unlink_paths(persist_path: std::path::PathBuf, persists: &[Vec<String>]) -> Fallible<()> {
+    for persist in persists {
+        assert!(!persist.is_empty());
+
+        let src = internal::path::normalize_path(persist_path.join(&persist[0]));
+        let _ = internal::fs::remove_symlink(src);
     }
     Ok(())
 }

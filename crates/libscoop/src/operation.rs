@@ -31,9 +31,18 @@ use crate::{
     error::{Error, Fallible},
     event::Event,
     internal, package,
-    package::{InstallInfo, Package, QueryOption},
+    package::{CleanupOption, InstallInfo, Package, QueryOption},
     Session, SyncOption,
 };
+
+/// Clean up old package versions.
+pub fn package_cleanup(
+    session: &Session,
+    apps: &[String],
+    options: &[CleanupOption],
+) -> Fallible<()> {
+    package::cleanup::cleanup(session, apps, options)
+}
 
 /// Add a bucket to Scoop.
 ///
@@ -335,6 +344,13 @@ pub fn package_hold(session: &Session, name: &str, flag: bool) -> Fallible<()> {
     } else {
         Err(Error::PackageHoldBrokenInstall(name.to_owned()))
     }
+}
+
+pub fn status(
+    session: &Session,
+    local_only: bool,
+) -> Fallible<crate::StatusReport> {
+    crate::status::collect_status(session, local_only)
 }
 
 /// Query packages.

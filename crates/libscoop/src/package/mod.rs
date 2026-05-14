@@ -3,6 +3,7 @@ pub(crate) mod manifest;
 pub(crate) mod query;
 pub(crate) mod resolve;
 pub(crate) mod sync;
+pub mod cleanup;
 
 use once_cell::unsync::OnceCell;
 use std::{fmt, path::PathBuf};
@@ -10,6 +11,14 @@ use std::{fmt, path::PathBuf};
 pub use manifest::{HashString, InstallInfo, License, Manifest};
 pub use query::QueryOption;
 pub use sync::SyncOption;
+
+/// Options for the package cleanup operation.
+#[non_exhaustive]
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub enum CleanupOption {
+    /// Also remove outdated download cache files.
+    Cache,
+}
 
 use crate::{constant::ISOLATED_PACKAGE_BUCKET, internal};
 

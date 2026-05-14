@@ -1,7 +1,7 @@
 use once_cell::unsync::OnceCell;
 use scoop_hash::ChecksumBuilder;
 use std::io::Read;
-use tracing::{debug, info};
+use tracing::{debug, info, warn};
 
 use crate::{
     constant::REGEX_HASH, env, error::Fallible, internal, persist, psmodule, shim, shortcut, Error,
@@ -317,19 +317,55 @@ impl Default for Transaction {
 
 /// Sync operation: install and/or upgrade packages.
 pub fn install(session: &Session, queries: &[&str], options: &[SyncOption]) -> Fallible<()> {
+    debug!("Entering sync::install, queries: {:?}, options: {:?}", queries, options);
     let mut packages = vec![];
 
     let only_upgrade = options.contains(&SyncOption::OnlyUpgrade);
     let escape_hold = options.contains(&SyncOption::EscapeHold);
 
     if only_upgrade {
-        packages = query::query_installed(session, queries, &[QueryOption::Upgradable])?;
+        if queries == vec!["*"] {
+            // If there are no queries (upgrade everything), we leave the old logic
+            packages = query::query_installed(session, &["*"], &[QueryOption::Upgradable])?;
+            packages = packages
+                .into_iter()
+                .map(|p| p.upgradable().cloned().unwrap())
+                .collect::<Vec<_>>();
+        } else {
+            let synced = query::query_synced(session, &["*"], &[])?;
+            for &query in queries {
+                let (query_bucket, query_name) = query.split_once('/').unwrap_or(("", query));
 
-        // Replace the packages with their upgradable references.
-        packages = packages
-            .into_iter()
-            .map(|p| p.upgradable().cloned().unwrap())
-            .collect::<Vec<_>>();
+                // 1. Check if the package exists in the manifests at all
+                let exists = synced.iter().any(|p| {
+                    let bucket_matched = query_bucket.is_empty() || p.bucket() == query_bucket;
+                    let name_matched = p.name() == query_name;
+                    bucket_matched && name_matched
+                });
+
+                if !exists {
+                    if let Some(tx) = session.emitter() {
+                        let _ = tx.send(Event::PackageNotFound(query.to_owned()));
+                    }
+                    return Err(Error::PackageNotFound(query.to_owned()));
+                }
+
+                // 2. Check if it is installed in the system
+                let installed = query::query_installed(session, &[query], &[])?;
+                if installed.is_empty() {
+                    if let Some(tx) = session.emitter() {
+                        let _ = tx.send(Event::PackageNotFound(query.to_owned()));
+                    }
+                    return Err(Error::PackageNotFound(query.to_owned()));
+                }
+
+                // 3. If installed, check for updates
+                let mut upgradable = query::query_installed(session, &[query], &[QueryOption::Upgradable])?;
+                if let Some(p) = upgradable.pop() {
+                    packages.push(p.upgradable().cloned().unwrap());
+                }
+            }
+        }
     } else {
         let synced = query::query_synced(session, &["*"], &[])?;
 
@@ -346,233 +382,254 @@ pub fn install(session: &Session, queries: &[&str], options: &[SyncOption]) -> F
                 .collect::<Vec<_>>();
 
             match matched.len() {
-                0 => return Err(Error::PackageNotFound(query.to_owned())),
+                0 => {
+                    if let Some(tx) = session.emitter() {
+                        let _ = tx.send(Event::PackageNotFound(query.to_owned()));
+                    }
+                    return Err(Error::PackageNotFound(query.to_owned()));
+                }
                 1 => {
                     let p = matched.pop().unwrap();
-
-                    if p.is_held() && !escape_hold {
-                        // Skipping held package returns nothing to frontend...
-                        continue;
-                    }
-
-                    if !packages.contains(&p) {
-                        packages.push(p);
-                    }
+                    if p.is_held() && !escape_hold { continue; }
+                    if !packages.contains(&p) { packages.push(p); }
                 }
                 _ => {
                     let is_held = matched.iter().any(|p| p.is_held());
-
-                    if is_held && !escape_hold {
-                        continue;
-                    }
-
+                    if is_held && !escape_hold { continue; }
                     resolve::select_candidate(session, &mut matched)?;
                     let p = matched.pop().unwrap();
-                    if !packages.contains(&p) {
-                        packages.push(p);
-                    }
+                    if !packages.contains(&p) { packages.push(p); }
                 }
             }
         }
     };
 
     if packages.is_empty() {
+        if let Some(tx) = session.emitter() {
+            let _ = tx.send(Event::PackageNoOp);
+        }
         return Ok(());
     }
-
     let transaction = Transaction::default();
-
-    let no_dependencies = options.contains(&SyncOption::NoDependencies);
-    if !no_dependencies {
+    if !options.contains(&SyncOption::NoDependencies) {
         resolve::resolve_dependencies(session, &mut packages)?;
     }
 
-    let (installed, installable): (Vec<_>, Vec<_>) =
-        packages.into_iter().partition(|p| p.is_installed());
+    let (installed, installable): (Vec<_>, Vec<_>) = packages.into_iter().partition(|p| p.is_installed());
+    let (upgradable, replaceable): (Vec<_>, Vec<_>) = installed.into_iter().partition(|p| p.is_strictly_installed());
 
-    let (upgradable, replaceable): (Vec<_>, Vec<_>) = installed
-        .into_iter()
-        .partition(|p| p.is_strictly_installed());
-
-    if !only_upgrade && !installable.is_empty() {
-        transaction.set_install(installable);
-    }
-
-    let upgradable = upgradable
-        .into_iter()
-        .filter(|p| p.upgradable_version().is_some())
-        .collect::<Vec<_>>();
-
-    let no_upgrade = options.contains(&SyncOption::NoUpgrade);
-    if !no_upgrade && !upgradable.is_empty() {
+    if !only_upgrade && !installable.is_empty() { transaction.set_install(installable); }
+    let upgradable = upgradable.into_iter().filter(|p| p.upgradable_version().is_some()).collect::<Vec<_>>();
+    if !options.contains(&SyncOption::NoUpgrade) && !upgradable.is_empty() {
         if !escape_hold {
-            let (_held, upgradable): (Vec<_>, Vec<_>) =
-                upgradable.into_iter().partition(|p| p.is_held());
-
-            if !upgradable.is_empty() {
-                transaction.set_upgrade(upgradable);
-            }
+            let (_held, upgradable): (Vec<_>, Vec<_>) = upgradable.into_iter().partition(|p| p.is_held());
+            if !upgradable.is_empty() { transaction.set_upgrade(upgradable); }
         } else {
             transaction.set_upgrade(upgradable);
         }
     }
-
-    let no_replace = options.contains(&SyncOption::NoReplace);
-    if !no_replace && !replaceable.is_empty() {
-        transaction.set_replace(replaceable);
-    }
+    if !options.contains(&SyncOption::NoReplace) && !replaceable.is_empty() { transaction.set_replace(replaceable); }
 
     let reuse_cache = !options.contains(&SyncOption::IgnoreCache);
-
     let packages = transaction.add_view();
     if packages.is_empty() {
+        if let Some(tx) = session.emitter() {
+            let _ = tx.send(Event::PackageNoOp);
+        }
         return Ok(());
     }
 
-    let mut set = download::PackageSet::new(session, &packages, reuse_cache)?;
-
-    let assume_yes = options.contains(&SyncOption::AssumeYes);
-    let offline = options.contains(&SyncOption::Offline);
-    let mut should_offline = true;
-
-    if !offline {
-        if let Some(tx) = session.emitter() {
-            let _ = tx.send(Event::PackageDownloadSizingStart);
-        }
-
+    debug!("Downloading packages...");
+    let mut set = download::PackageSet::new(session, &packages, reuse_cache).map_err(Error::from)?;
+    if !options.contains(&SyncOption::Offline) {
+        if let Some(tx) = session.emitter() { let _ = tx.send(Event::PackageDownloadSizingStart); }
         let download_size = set.calculate_download_size()?;
-        should_offline = download_size.total == 0;
         transaction.set_download_size(download_size);
     }
 
-    if !assume_yes {
+    if !options.contains(&SyncOption::AssumeYes) {
         if let Some(tx) = session.emitter() {
-            if tx
-                .send(Event::PromptTransactionNeedConfirm(transaction.clone()))
-                .is_ok()
-            {
+            if tx.send(Event::PromptTransactionNeedConfirm(transaction.clone())).is_ok() {
                 let rx = session.receiver().unwrap();
                 let mut confirmed = false;
-
                 while let Ok(event) = rx.recv() {
-                    if let Event::PromptTransactionNeedConfirmResult(ret) = event {
-                        confirmed = ret;
-                        break;
-                    }
+                    if let Event::PromptTransactionNeedConfirmResult(ret) = event { confirmed = ret; break; }
                 }
-
-                if !confirmed {
-                    return Ok(());
-                }
+                if !confirmed { return Ok(()); }
             }
         }
     }
 
-    if !should_offline {
-        if let Some(tx) = session.emitter() {
-            let _ = tx.send(Event::PackageDownloadStart);
+    if !options.contains(&SyncOption::Offline) {
+        if let Some(tx) = session.emitter() { let _ = tx.send(Event::PackageDownloadStart); }
+        if let Err(e) = set.download() {
+            debug!("Error during download: {}", e);
+            return Err(Error::from(e));
         }
-
-        set.download()?;
-
-        if let Some(tx) = session.emitter() {
-            let _ = tx.send(Event::PackageDownloadDone);
-        }
+        if let Some(tx) = session.emitter() { let _ = tx.send(Event::PackageDownloadDone); }
     }
 
-    let no_hash_check = options.contains(&SyncOption::NoHashCheck);
-    if !no_hash_check {
-        if let Some(tx) = session.emitter() {
-            let _ = tx.send(Event::PackageIntegrityCheckStart);
-        }
-
+    if !options.contains(&SyncOption::NoHashCheck) {
+        if let Some(tx) = session.emitter() { let _ = tx.send(Event::PackageIntegrityCheckStart); }
         let config = session.config();
         let cache_root = config.cache_path();
-
         let mut buf = [0; 1024 * 64];
 
         for &pkg in packages.iter() {
-            if pkg.version() == "nightly" {
-                info!("skip hash check for nightly package '{}'", pkg.name());
-                continue;
-            }
-
+            if pkg.version() == "nightly" { continue; }
             let files = pkg.download_filenames();
             let hashes = pkg.download_hashes();
-            let files_cnt = files.len();
-
             for (idx, (filename, hash)) in files.into_iter().zip(hashes.into_iter()).enumerate() {
-                let path = cache_root.join(filename);
-
+                let path = cache_root.join(&filename);
                 let mut hasher = ChecksumBuilder::new().algo(hash.algorithm())?.build();
-
-                if let Some(tx) = session.emitter() {
-                    let progress = format!("{} ({}/{})", pkg.name(), idx + 1, files_cnt);
-                    let _ = tx.send(Event::PackageIntegrityCheckProgress(progress));
-                }
-
-                let mut file = std::fs::File::open(path)?;
+                let mut file = std::fs::File::open(&path)?;
                 loop {
                     let len = file.read(&mut buf)?;
-                    if len == 0 {
-                        break;
-                    }
+                    if len == 0 { break; }
                     hasher.consume(&buf[..len]);
                 }
-
                 let actual = hasher.finalize();
-                let expected = hash.value();
-                if actual != expected {
-                    let name = pkg.name().to_owned();
-                    let url = pkg.download_urls()[idx].to_owned();
-                    let ctx =
-                        super::HashMismatchContext::new(name, url, expected.to_owned(), actual);
-                    return Err(Error::HashMismatch(ctx));
+                if actual != hash.value() {
+                    return Err(Error::HashMismatch(super::HashMismatchContext::new(pkg.name().to_owned(), pkg.download_urls()[idx].to_owned(), hash.value().to_owned(), actual)));
                 }
             }
         }
+        if let Some(tx) = session.emitter() { let _ = tx.send(Event::PackageIntegrityCheckDone); }
+    }
 
-        if let Some(tx) = session.emitter() {
-            let _ = tx.send(Event::PackageIntegrityCheckDone);
+    debug!("Sync options: {:?}", options);
+    debug!("Should install: {}", !options.contains(&SyncOption::DownloadOnly));
+    debug!("Number of packages to install/upgrade: {}", packages.len());
+    if !options.contains(&SyncOption::DownloadOnly) {
+        for &pkg in packages.iter() {
+            debug!("Starting installation for package: {}", pkg.name());
+            let config = session.config();
+            let app_dir = config.root_path().join("apps").join(pkg.name());
+            let version_dir = app_dir.join(pkg.version());
+            debug!("App directory: {}, Version directory: {}", app_dir.display(), version_dir.display());
+
+            // 1. Clean and prepare install destination dir
+            if version_dir.exists() {
+                std::fs::remove_dir_all(&version_dir)?;
+            }
+            internal::fs::ensure_dir(&version_dir)?;
+
+            // 2. Clean and prepare staging dir
+            let staging_dir = app_dir.join(format!(".tmp-{}", pkg.version()));
+            if staging_dir.exists() {
+                let _ = std::fs::remove_dir_all(&staging_dir);
+            }
+            internal::fs::ensure_dir(&staging_dir)?;
+
+            // 3. Prepare staging dir contents
+            let filenames = pkg.download_filenames();
+            let urls = pkg.download_urls();
+            for (filename, url) in filenames.iter().zip(urls.iter()) {
+                let src = config.cache_path().join(filename);
+                if internal::archive::is_archive_url(url) {
+                    internal::archive::extract(&src, &staging_dir)?;
+                } else {
+                    let real_filename = url.split('/').last()
+                        .unwrap_or(filename.as_str())
+                        .split('?').next()
+                        .unwrap_or(filename.as_str());
+                    let dest = staging_dir.join(real_filename);
+                    std::fs::copy(&src, &dest)?;
+                }
+            }
+
+            // 4. Extract into version dir
+            let extract_source = if let Some(extract_dirs) = pkg.manifest().extract_dir() {
+                let mut p = staging_dir.clone();
+                for d in extract_dirs {
+                    p = p.join(d);
+                }
+                p
+            } else {
+                // Auto-detect: if archive extracted into a single subdirectory, use that
+                let subdirs: Vec<_> = std::fs::read_dir(&staging_dir)?
+                    .filter_map(|e| e.ok())
+                    .filter(|e| e.path().is_dir())
+                    .collect();
+                if subdirs.len() == 1 {
+                    subdirs[0].path()
+                } else {
+                    staging_dir.clone()
+                }
+            };
+
+            // 5. Move all contents into version_dir
+            for entry in std::fs::read_dir(&extract_source)? {
+                let entry = entry?;
+                let dest = version_dir.join(entry.file_name());
+                std::fs::rename(entry.path(), dest)?;
+            }
+
+            // 6. Clean up staging dir
+            let _ = std::fs::remove_dir_all(&staging_dir);
+
+            // 7. Create current junction
+            let current_lnk = app_dir.join("current");
+            if current_lnk.exists() || current_lnk.is_symlink() {
+                let _ = internal::fs::remove_symlink(&current_lnk);
+            }
+            let output = std::process::Command::new("cmd")
+                .args(["/c", "mklink", "/J", &current_lnk.to_string_lossy(), &version_dir.to_string_lossy()])
+                .output()?;
+            if !output.status.success() {
+                debug!("Junction creation failed: {}", String::from_utf8_lossy(&output.stderr));
+            }
+
+            // 8. Create shims
+            shim::add(session, pkg, &current_lnk)?;
+
+            // 9. Write install.json
+            let install_info = crate::package::InstallInfo::new(
+                match std::env::consts::ARCH {
+                    "x86_64"  => "64bit".to_owned(),
+                    "x86"     => "32bit".to_owned(),
+                    "aarch64" => "arm64".to_owned(),
+                    other     => other.to_owned(),
+                },
+                Some(pkg.bucket().to_owned()),
+                Some(false),
+                None,
+            );
+            let _ = internal::fs::write_json(version_dir.join("install.json"), install_info);
+
+            // 10. Copy manifest.json
+            let manifest_path = pkg.manifest().path();
+            let dest_manifest = version_dir.join("manifest.json");
+            debug!("Manifest path: {}, exists: {}", manifest_path.display(), manifest_path.exists());
+            if manifest_path.exists() {
+                match std::fs::copy(manifest_path, &dest_manifest) {
+                    Ok(_) => debug!("Copied manifest to {}", dest_manifest.display()),
+                    Err(e) => {
+                        let msg = format!("Failed to copy manifest from {} to {}: {}", manifest_path.display(), dest_manifest.display(), e);
+                        warn!("{}", msg);
+                        return Err(crate::Error::Custom(msg));
+                    }
+                }
+            } else {
+                warn!("Manifest file does not exist at {}", manifest_path.display());
+            }
+
+            // 11. Clean up old version directory (upgrade only)
+            if only_upgrade {
+                if let Some(old_version) = pkg.installed_version() {
+                    let old_version_dir = app_dir.join(old_version);
+                    if old_version_dir.exists() && old_version_dir != version_dir {
+                        let _ = std::fs::remove_dir_all(&old_version_dir);
+                    }
+                }
+            }
         }
     }
-
-    let download_only = options.contains(&SyncOption::DownloadOnly);
-    if !download_only {
-        // TODO: PowerShell hosting with execution context is not supported yet.
-        // Perhaps at present we could call Scoop to do the removal for packages
-        // using PS scripts...
-        let (_packages_with_script, _packages): (Vec<&Package>, Vec<&Package>) =
-            packages.iter().partition(|p| p.has_install_script());
-
-        // TODO: commit transcation
-        // let config = session.config();
-        // let apps_dir = config.root_path().join("apps");
-
-        // for &pkg in packages.iter() {
-        //     if let Some(tx) = session.emitter() {
-        //         let _ = tx.send(Event::PackageCommitStart(pkg.name().to_owned()));
-        //     }
-
-        //     let working_dir = apps_dir.join(pkg.name()).join(pkg.version());
-        //     internal::fs::ensure_dir(&working_dir)?;
-
-        //     let files = pkg.download_filenames();
-
-        //     for filename in files.iter() {
-        //         let src = config.cache_path().join(filename);
-        //         let dst = working_dir.join(filename);
-
-        //         // replace existing file
-        //         let _ = std::fs::remove_file(&dst);
-        //         std::fs::copy(src, dst)?;
-
-        //     }
-        // }
+    if let Some(tx) = session.emitter() {
+        let _ = tx.send(Event::PackageSyncDone);
     }
-
     Ok(())
-}
+    }
 
 /// Sync operation: remove packages.
 pub fn remove(session: &Session, queries: &[&str], options: &[SyncOption]) -> Fallible<()> {
@@ -710,18 +767,18 @@ pub fn remove(session: &Session, queries: &[&str], options: &[SyncOption]) -> Fa
             // TODO: uninstaller
 
             shim::remove(session, package)?;
-            shortcut::remove(session, package)?;
-            psmodule::remove(session, package)?;
-            env::remove(session, package)?;
-            persist::unlink(session, package)?;
+            let _ = shortcut::remove(session, package);
+            let _ = psmodule::remove(session, package);
+            let _ = env::remove(session, package);
+            let _ = persist::unlink(session, package);
 
             let current_lnk = app_dir.join("current");
-            internal::fs::remove_symlink(current_lnk)?;
+            let _ = internal::fs::remove_symlink(current_lnk);
 
             // TODO: post_uninstall
 
             // Remove the app directory
-            internal::fs::remove_dir(app_dir)?;
+            std::fs::remove_dir_all(&app_dir)?;
 
             if purge {
                 if let Some(tx) = session.emitter() {
