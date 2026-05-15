@@ -8,6 +8,8 @@ on:
 permissions:
   contents: write
   pull-requests: write
+env:
+  FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: "true"
 jobs:
   # format and lint check
   ci_style_check:
@@ -74,7 +76,7 @@ jobs:
     name: Release Please
     needs: ci_test_build
     runs-on: ubuntu-latest
-    if: github.repository == '${{ github.repository }}' && github.ref == 'refs/heads/main' && github.event_name == 'push'
+    if: ${{ github.repository == 'nidara-duo/hok' && github.ref == 'refs/heads/main' && github.event_name == 'push' }}
     steps:
       - uses: google-github-actions/release-please-action@v3
         id: release
