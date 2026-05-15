@@ -1,9 +1,9 @@
 [package]
 name = "hok"
 description = "Hok is a CLI implementation of Scoop in Rust (Revived Turbo Edition)"
-repository = "https://github.com/nidara-duo/hok" # 👈 Change this to your fork
+repository = "https://github.com/nidara-duo/hok"
 version = "1.0.1-beta"
-authors = ["Nidara Duo", "Chawye Hsu <su+cratesio@chawyehsu.com>"] # 👈 Add yourself first!
+authors = ["Nidara Duo", "Chawye Hsu <su+cratesio@chawyehsu.com>"]
 license = "Apache-2.0"
 edition = "2021"
 readme = "README.md"
