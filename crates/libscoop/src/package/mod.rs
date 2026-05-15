@@ -378,6 +378,7 @@ impl Package {
 
     /// Check if this package defines install hooks (powershell scripts) in its
     /// manifest.
+    #[allow(dead_code)]
     pub(crate) fn has_install_script(&self) -> bool {
         [
             self.manifest.pre_install(),

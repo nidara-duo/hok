@@ -51,7 +51,7 @@ pub enum ShimType {
 }
 
 impl Shim<'_> {
-    pub fn new(def: Vec<&str>) -> Shim {
+    pub fn new(def: Vec<&str>) -> Shim<'_> {
         let length = def.len();
         assert_ne!(length, 0);
 
@@ -143,7 +143,6 @@ pub fn remove(session: &Session, package: &Package) -> Fallible<()> {
         }
 
         for shim in bins.into_iter().map(Shim::new) {
-            let mut shim_path = shims_dir.join(shim.name);
             let exts = match shim.ty {
                 ShimType::Exe => vec!["exe", "shim", "cmd"],
                 ShimType::PowerShell => vec!["cmd", "ps1", ""],
@@ -163,13 +162,13 @@ pub fn remove(session: &Session, package: &Package) -> Fallible<()> {
                     shims_dir.join(&base_name),
                 ];
 
-                for shim_path in shim_paths {
-                    if shim_path.exists() {
+                for _shim_path in shim_paths {
+                    if _shim_path.exists() {
                         if let Some(tx) = session.emitter() {
-                            let shim_name = shim_path.file_name().unwrap().to_string_lossy().to_string();
+                            let shim_name = _shim_path.file_name().unwrap().to_string_lossy().to_string();
                             let _ = tx.send(Event::PackageShimRemoveProgress(shim_name));
                         }
-                        let _ = std::fs::remove_file(&shim_path);
+                        let _ = std::fs::remove_file(&_shim_path);
                     }
                 }
 

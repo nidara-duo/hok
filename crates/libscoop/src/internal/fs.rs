@@ -41,6 +41,7 @@ pub fn empty_dir<P: AsRef<Path> + ?Sized>(path: &P) -> io::Result<()> {
 ///
 /// Note: this function will ignore JSON files named `package.json`, which is
 /// considered to be the config file a NPM package.
+#[allow(dead_code)]
 pub fn walk_dir_json<P: AsRef<Path>>(path: P) -> io::Result<Vec<PathBuf>> {
     let path = path.as_ref();
     Ok(path
@@ -59,6 +60,7 @@ pub fn walk_dir_json<P: AsRef<Path>>(path: P) -> io::Result<Vec<PathBuf>> {
 
 /// Convert a string to a valid safe filename.
 #[inline]
+#[allow(dead_code)]
 pub fn filenamify<S: AsRef<str>>(filename: S) -> String {
     static REGEX_REPLACE: Lazy<Regex> =
         Lazy::new(|| RegexBuilder::new(r"[^\w.-]+").build().unwrap());
@@ -130,6 +132,7 @@ pub fn remove_symlink<P: AsRef<Path>>(lnk: P) -> io::Result<()> {
 
 /// Create a directory symlink at `lnk` pointing to `src`.
 #[cfg(windows)]
+#[allow(dead_code)]
 pub fn symlink_dir<P: AsRef<Path>, Q: AsRef<Path>>(src: P, lnk: Q) -> io::Result<()> {
     let src = src.as_ref();
     let lnk = lnk.as_ref();
@@ -161,12 +164,14 @@ pub fn symlink_dir<P: AsRef<Path>, Q: AsRef<Path>>(src: P, lnk: Q) -> io::Result
 /// Create a directory symlink at `lnk` pointing to `src`.
 #[cfg(unix)]
 #[inline]
+#[allow(dead_code)]
 pub fn symlink_dir<P: AsRef<Path>, Q: AsRef<Path>>(src: P, lnk: Q) -> io::Result<()> {
     std::os::unix::fs::symlink(src, lnk)
 }
 
 /// Create a file symlink at `lnk` pointing to `src`.
 #[cfg(windows)]
+#[allow(dead_code)]
 pub fn symlink_file<P: AsRef<Path>, Q: AsRef<Path>>(src: P, lnk: Q) -> io::Result<()> {
     let src = src.as_ref();
     let lnk = lnk.as_ref();
@@ -199,6 +204,7 @@ pub fn symlink_file<P: AsRef<Path>, Q: AsRef<Path>>(src: P, lnk: Q) -> io::Resul
 /// Create a file symlink at `lnk` pointing to `src`.
 #[cfg(unix)]
 #[inline]
+#[allow(dead_code)]
 pub fn symlink_file<P: AsRef<Path>, Q: AsRef<Path>>(src: P, lnk: Q) -> io::Result<()> {
     std::os::unix::fs::symlink(src, lnk)
 }
@@ -206,6 +212,7 @@ pub fn symlink_file<P: AsRef<Path>, Q: AsRef<Path>>(src: P, lnk: Q) -> io::Resul
 /// Create a symlink at `lnk` pointing to `src`.
 /// This function will automatically determine if `src` is a file or a directory.
 #[cfg(windows)]
+#[allow(dead_code)]
 pub fn symlink<P: AsRef<Path>, Q: AsRef<Path>>(src: P, lnk: Q) -> io::Result<()> {
     let src = src.as_ref();
     let lnk = lnk.as_ref();
@@ -223,6 +230,7 @@ pub fn symlink<P: AsRef<Path>, Q: AsRef<Path>>(src: P, lnk: Q) -> io::Result<()>
 /// This function will automatically determine if `src` is a file or a directory.
 #[cfg(unix)]
 #[inline]
+#[allow(dead_code)]
 pub fn symlink<P: AsRef<Path>, Q: AsRef<Path>>(src: P, lnk: Q) -> io::Result<()> {
     std::os::unix::fs::symlink(src, lnk)
 }

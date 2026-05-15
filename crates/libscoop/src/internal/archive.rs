@@ -1,7 +1,6 @@
-use std::path::{Path, PathBuf};
-use std::process::Command;
+use std::path::Path;
 use crate::error::Fallible;
-use tracing::debug;
+
 
 pub fn is_archive_url(url: &str) -> bool {
     let lower = url.to_lowercase();

@@ -581,6 +581,7 @@ pub fn global_path() -> PathBuf {
 
 /// Check if the given `path` is equal to the `default` Scoop global path.
 #[inline]
+#[allow(dead_code)]
 pub fn is_default_global_path<P: AsRef<Path>>(path: P) -> bool {
     path.as_ref() == global_path()
 }

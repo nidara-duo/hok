@@ -1,10 +1,10 @@
 use once_cell::unsync::OnceCell;
 use scoop_hash::ChecksumBuilder;
 use std::io::Read;
-use tracing::{debug, info, warn};
+use tracing::{debug, warn};
 
 use crate::{
-    constant::REGEX_HASH, env, error::Fallible, internal, persist, psmodule, shim, shortcut, Error,
+    env, error::Fallible, internal, persist, psmodule, shim, shortcut, Error,
     Event, QueryOption, Session,
 };
 
