@@ -876,7 +876,7 @@ dependencies = [
 
 [[package]]
 name = "hok"
-version = "0.1.0-beta.7"
+version = "1.0.1-beta"
 dependencies = [
  "anyhow",
  "clap 4.5.23",
