@@ -111,7 +111,7 @@ fn cleanup_one(session: &Session, app_name: &str, remove_cache: bool) -> Fallibl
 
     if remove_cache {
         let cache_dir = config.cache_path();
-        if let Ok(entries) = fs::read_dir(&cache_dir) {
+        if let Ok(entries) = fs::read_dir(cache_dir) {
             for entry in entries.filter_map(|e| e.ok()) {
                 let fname = entry.file_name();
                 let name = fname.to_string_lossy();

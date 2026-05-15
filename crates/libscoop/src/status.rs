@@ -109,7 +109,7 @@ pub fn collect_status(session: &Session, local_only: bool) -> Fallible<StatusRep
 
 fn collect_status_entries(session: &Session) -> Fallible<Vec<StatusEntry>> {
     let config = session.config();
-    let apps_dirs = vec![
+    let apps_dirs = [
         config.root_path().join("apps"),
         crate::config::global_path().join("apps"),
     ];

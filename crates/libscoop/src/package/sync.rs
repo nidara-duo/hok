@@ -4,8 +4,8 @@ use std::io::Read;
 use tracing::{debug, warn};
 
 use crate::{
-    env, error::Fallible, internal, persist, psmodule, shim, shortcut, Error,
-    Event, QueryOption, Session,
+    env, error::Fallible, internal, persist, psmodule, shim, shortcut, Error, Event, QueryOption,
+    Session,
 };
 
 use super::{
@@ -317,7 +317,10 @@ impl Default for Transaction {
 
 /// Sync operation: install and/or upgrade packages.
 pub fn install(session: &Session, queries: &[&str], options: &[SyncOption]) -> Fallible<()> {
-    debug!("Entering sync::install, queries: {:?}, options: {:?}", queries, options);
+    debug!(
+        "Entering sync::install, queries: {:?}, options: {:?}",
+        queries, options
+    );
     let mut packages = vec![];
 
     let only_upgrade = options.contains(&SyncOption::OnlyUpgrade);
@@ -360,7 +363,8 @@ pub fn install(session: &Session, queries: &[&str], options: &[SyncOption]) -> F
                 }
 
                 // 3. If installed, check for updates
-                let mut upgradable = query::query_installed(session, &[query], &[QueryOption::Upgradable])?;
+                let mut upgradable =
+                    query::query_installed(session, &[query], &[QueryOption::Upgradable])?;
                 if let Some(p) = upgradable.pop() {
                     packages.push(p.upgradable().cloned().unwrap());
                 }
@@ -390,15 +394,23 @@ pub fn install(session: &Session, queries: &[&str], options: &[SyncOption]) -> F
                 }
                 1 => {
                     let p = matched.pop().unwrap();
-                    if p.is_held() && !escape_hold { continue; }
-                    if !packages.contains(&p) { packages.push(p); }
+                    if p.is_held() && !escape_hold {
+                        continue;
+                    }
+                    if !packages.contains(&p) {
+                        packages.push(p);
+                    }
                 }
                 _ => {
                     let is_held = matched.iter().any(|p| p.is_held());
-                    if is_held && !escape_hold { continue; }
+                    if is_held && !escape_hold {
+                        continue;
+                    }
                     resolve::select_candidate(session, &mut matched)?;
                     let p = matched.pop().unwrap();
-                    if !packages.contains(&p) { packages.push(p); }
+                    if !packages.contains(&p) {
+                        packages.push(p);
+                    }
                 }
             }
         }
@@ -415,20 +427,33 @@ pub fn install(session: &Session, queries: &[&str], options: &[SyncOption]) -> F
         resolve::resolve_dependencies(session, &mut packages)?;
     }
 
-    let (installed, installable): (Vec<_>, Vec<_>) = packages.into_iter().partition(|p| p.is_installed());
-    let (upgradable, replaceable): (Vec<_>, Vec<_>) = installed.into_iter().partition(|p| p.is_strictly_installed());
+    let (installed, installable): (Vec<_>, Vec<_>) =
+        packages.into_iter().partition(|p| p.is_installed());
+    let (upgradable, replaceable): (Vec<_>, Vec<_>) = installed
+        .into_iter()
+        .partition(|p| p.is_strictly_installed());
 
-    if !only_upgrade && !installable.is_empty() { transaction.set_install(installable); }
-    let upgradable = upgradable.into_iter().filter(|p| p.upgradable_version().is_some()).collect::<Vec<_>>();
+    if !only_upgrade && !installable.is_empty() {
+        transaction.set_install(installable);
+    }
+    let upgradable = upgradable
+        .into_iter()
+        .filter(|p| p.upgradable_version().is_some())
+        .collect::<Vec<_>>();
     if !options.contains(&SyncOption::NoUpgrade) && !upgradable.is_empty() {
         if !escape_hold {
-            let (_held, upgradable): (Vec<_>, Vec<_>) = upgradable.into_iter().partition(|p| p.is_held());
-            if !upgradable.is_empty() { transaction.set_upgrade(upgradable); }
+            let (_held, upgradable): (Vec<_>, Vec<_>) =
+                upgradable.into_iter().partition(|p| p.is_held());
+            if !upgradable.is_empty() {
+                transaction.set_upgrade(upgradable);
+            }
         } else {
             transaction.set_upgrade(upgradable);
         }
     }
-    if !options.contains(&SyncOption::NoReplace) && !replaceable.is_empty() { transaction.set_replace(replaceable); }
+    if !options.contains(&SyncOption::NoReplace) && !replaceable.is_empty() {
+        transaction.set_replace(replaceable);
+    }
 
     let reuse_cache = !options.contains(&SyncOption::IgnoreCache);
     let packages = transaction.add_view();
@@ -440,65 +465,96 @@ pub fn install(session: &Session, queries: &[&str], options: &[SyncOption]) -> F
     }
 
     debug!("Downloading packages...");
-    let mut set = download::PackageSet::new(session, &packages, reuse_cache).map_err(Error::from)?;
+    let mut set =
+        download::PackageSet::new(session, &packages, reuse_cache)?;
     if !options.contains(&SyncOption::Offline) {
-        if let Some(tx) = session.emitter() { let _ = tx.send(Event::PackageDownloadSizingStart); }
+        if let Some(tx) = session.emitter() {
+            let _ = tx.send(Event::PackageDownloadSizingStart);
+        }
         let download_size = set.calculate_download_size()?;
         transaction.set_download_size(download_size);
     }
 
     if !options.contains(&SyncOption::AssumeYes) {
         if let Some(tx) = session.emitter() {
-            if tx.send(Event::PromptTransactionNeedConfirm(transaction.clone())).is_ok() {
+            if tx
+                .send(Event::PromptTransactionNeedConfirm(transaction.clone()))
+                .is_ok()
+            {
                 let rx = session.receiver().unwrap();
                 let mut confirmed = false;
                 while let Ok(event) = rx.recv() {
-                    if let Event::PromptTransactionNeedConfirmResult(ret) = event { confirmed = ret; break; }
+                    if let Event::PromptTransactionNeedConfirmResult(ret) = event {
+                        confirmed = ret;
+                        break;
+                    }
                 }
-                if !confirmed { return Ok(()); }
+                if !confirmed {
+                    return Ok(());
+                }
             }
         }
     }
 
     if !options.contains(&SyncOption::Offline) {
-        if let Some(tx) = session.emitter() { let _ = tx.send(Event::PackageDownloadStart); }
+        if let Some(tx) = session.emitter() {
+            let _ = tx.send(Event::PackageDownloadStart);
+        }
         if let Err(e) = set.download() {
             debug!("Error during download: {}", e);
-            return Err(Error::from(e));
+            return Err(e);
         }
-        if let Some(tx) = session.emitter() { let _ = tx.send(Event::PackageDownloadDone); }
+        if let Some(tx) = session.emitter() {
+            let _ = tx.send(Event::PackageDownloadDone);
+        }
     }
 
     if !options.contains(&SyncOption::NoHashCheck) {
-        if let Some(tx) = session.emitter() { let _ = tx.send(Event::PackageIntegrityCheckStart); }
+        if let Some(tx) = session.emitter() {
+            let _ = tx.send(Event::PackageIntegrityCheckStart);
+        }
         let config = session.config();
         let cache_root = config.cache_path();
         let mut buf = [0; 1024 * 64];
 
         for &pkg in packages.iter() {
-            if pkg.version() == "nightly" { continue; }
+            if pkg.version() == "nightly" {
+                continue;
+            }
             let files = pkg.download_filenames();
             let hashes = pkg.download_hashes();
-            for (idx, (filename, hash)) in files.into_iter().zip(hashes.into_iter()).enumerate() {
+            for (idx, (filename, hash)) in files.into_iter().zip(hashes).enumerate() {
                 let path = cache_root.join(&filename);
                 let mut hasher = ChecksumBuilder::new().algo(hash.algorithm())?.build();
                 let mut file = std::fs::File::open(&path)?;
                 loop {
                     let len = file.read(&mut buf)?;
-                    if len == 0 { break; }
+                    if len == 0 {
+                        break;
+                    }
                     hasher.consume(&buf[..len]);
                 }
                 let actual = hasher.finalize();
                 if actual != hash.value() {
-                    return Err(Error::HashMismatch(super::HashMismatchContext::new(pkg.name().to_owned(), pkg.download_urls()[idx].to_owned(), hash.value().to_owned(), actual)));
+                    return Err(Error::HashMismatch(super::HashMismatchContext::new(
+                        pkg.name().to_owned(),
+                        pkg.download_urls()[idx].to_owned(),
+                        hash.value().to_owned(),
+                        actual,
+                    )));
                 }
             }
         }
-        if let Some(tx) = session.emitter() { let _ = tx.send(Event::PackageIntegrityCheckDone); }
+        if let Some(tx) = session.emitter() {
+            let _ = tx.send(Event::PackageIntegrityCheckDone);
+        }
     }
 
     debug!("Sync options: {:?}", options);
-    debug!("Should install: {}", !options.contains(&SyncOption::DownloadOnly));
+    debug!(
+        "Should install: {}",
+        !options.contains(&SyncOption::DownloadOnly)
+    );
     debug!("Number of packages to install/upgrade: {}", packages.len());
     if !options.contains(&SyncOption::DownloadOnly) {
         for &pkg in packages.iter() {
@@ -506,7 +562,11 @@ pub fn install(session: &Session, queries: &[&str], options: &[SyncOption]) -> F
             let config = session.config();
             let app_dir = config.root_path().join("apps").join(pkg.name());
             let version_dir = app_dir.join(pkg.version());
-            debug!("App directory: {}, Version directory: {}", app_dir.display(), version_dir.display());
+            debug!(
+                "App directory: {}, Version directory: {}",
+                app_dir.display(),
+                version_dir.display()
+            );
 
             // 1. Clean and prepare install destination dir
             if version_dir.exists() {
@@ -529,9 +589,12 @@ pub fn install(session: &Session, queries: &[&str], options: &[SyncOption]) -> F
                 if internal::archive::is_archive_url(url) {
                     internal::archive::extract(&src, &staging_dir)?;
                 } else {
-                    let real_filename = url.split('/').last()
+                    let real_filename = url
+                        .split('/')
+                        .next_back()
                         .unwrap_or(filename.as_str())
-                        .split('?').next()
+                        .split('?')
+                        .next()
                         .unwrap_or(filename.as_str());
                     let dest = staging_dir.join(real_filename);
                     std::fs::copy(&src, &dest)?;
@@ -574,10 +637,19 @@ pub fn install(session: &Session, queries: &[&str], options: &[SyncOption]) -> F
                 let _ = internal::fs::remove_symlink(&current_lnk);
             }
             let output = std::process::Command::new("cmd")
-                .args(["/c", "mklink", "/J", &current_lnk.to_string_lossy(), &version_dir.to_string_lossy()])
+                .args([
+                    "/c",
+                    "mklink",
+                    "/J",
+                    &current_lnk.to_string_lossy(),
+                    &version_dir.to_string_lossy(),
+                ])
                 .output()?;
             if !output.status.success() {
-                debug!("Junction creation failed: {}", String::from_utf8_lossy(&output.stderr));
+                debug!(
+                    "Junction creation failed: {}",
+                    String::from_utf8_lossy(&output.stderr)
+                );
             }
 
             // 8. Create shims
@@ -586,10 +658,10 @@ pub fn install(session: &Session, queries: &[&str], options: &[SyncOption]) -> F
             // 9. Write install.json
             let install_info = crate::package::InstallInfo::new(
                 match std::env::consts::ARCH {
-                    "x86_64"  => "64bit".to_owned(),
-                    "x86"     => "32bit".to_owned(),
+                    "x86_64" => "64bit".to_owned(),
+                    "x86" => "32bit".to_owned(),
                     "aarch64" => "arm64".to_owned(),
-                    other     => other.to_owned(),
+                    other => other.to_owned(),
                 },
                 Some(pkg.bucket().to_owned()),
                 Some(false),
@@ -600,18 +672,30 @@ pub fn install(session: &Session, queries: &[&str], options: &[SyncOption]) -> F
             // 10. Copy manifest.json
             let manifest_path = pkg.manifest().path();
             let dest_manifest = version_dir.join("manifest.json");
-            debug!("Manifest path: {}, exists: {}", manifest_path.display(), manifest_path.exists());
+            debug!(
+                "Manifest path: {}, exists: {}",
+                manifest_path.display(),
+                manifest_path.exists()
+            );
             if manifest_path.exists() {
                 match std::fs::copy(manifest_path, &dest_manifest) {
                     Ok(_) => debug!("Copied manifest to {}", dest_manifest.display()),
                     Err(e) => {
-                        let msg = format!("Failed to copy manifest from {} to {}: {}", manifest_path.display(), dest_manifest.display(), e);
+                        let msg = format!(
+                            "Failed to copy manifest from {} to {}: {}",
+                            manifest_path.display(),
+                            dest_manifest.display(),
+                            e
+                        );
                         warn!("{}", msg);
                         return Err(crate::Error::Custom(msg));
                     }
                 }
             } else {
-                warn!("Manifest file does not exist at {}", manifest_path.display());
+                warn!(
+                    "Manifest file does not exist at {}",
+                    manifest_path.display()
+                );
             }
 
             // 11. Clean up old version directory (upgrade only)
@@ -629,7 +713,7 @@ pub fn install(session: &Session, queries: &[&str], options: &[SyncOption]) -> F
         let _ = tx.send(Event::PackageSyncDone);
     }
     Ok(())
-    }
+}
 
 /// Sync operation: remove packages.
 pub fn remove(session: &Session, queries: &[&str], options: &[SyncOption]) -> Fallible<()> {

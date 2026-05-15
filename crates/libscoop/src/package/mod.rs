@@ -1,9 +1,9 @@
+pub mod cleanup;
 pub(crate) mod download;
 pub(crate) mod manifest;
 pub(crate) mod query;
 pub(crate) mod resolve;
 pub(crate) mod sync;
-pub mod cleanup;
 
 use once_cell::unsync::OnceCell;
 use std::{fmt, path::PathBuf};

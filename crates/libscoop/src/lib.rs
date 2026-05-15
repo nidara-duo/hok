@@ -39,10 +39,10 @@ mod env;
 mod error;
 mod event;
 mod internal;
+pub mod operation;
 pub mod package;
 mod persist;
 mod psmodule;
-pub mod operation;
 mod session;
 mod shim;
 mod shortcut;
@@ -52,9 +52,4 @@ pub use error::Error;
 pub use event::Event;
 pub use package::{CleanupOption, QueryOption, SyncOption};
 pub use session::Session;
-pub use status::{
-    collect_status,
-    StatusEntry,
-    StatusInfoFlag,
-    StatusReport,
-};
+pub use status::{collect_status, StatusEntry, StatusInfoFlag, StatusReport};

@@ -98,25 +98,34 @@ pub fn add(session: &Session, package: &Package, version_dir: &Path) -> Fallible
     if let Some(bins) = package.manifest().bin() {
         for bin_entry in bins {
             let shim = Shim::new(bin_entry.clone());
-            
+
             // For now, simple shim creation: just copy a standard shim exe or create a cmd shim.
             // A more robust implementation would use a proper shim engine.
             let shim_exe_dst = shims_dir.join(shim.name).with_extension("exe");
-            
+
             // This is a placeholder for a real shim engine.
             // Using a simple batch-based shim for demo/PoC if no executable shim exists.
             if !shim_exe_dst.exists() {
-                let mut batch_file = std::fs::File::create(shims_dir.join(shim.name).with_extension("cmd"))?;
+                let mut batch_file =
+                    std::fs::File::create(shims_dir.join(shim.name).with_extension("cmd"))?;
                 use std::io::Write;
                 writeln!(batch_file, "@echo off")?;
-                writeln!(batch_file, "\"{}\" %*", version_dir.join(shim.real_name).display())?;
+                writeln!(
+                    batch_file,
+                    "\"{}\" %*",
+                    version_dir.join(shim.real_name).display()
+                )?;
             }
-            
+
             // Write .shim file
             let shim_file_path = shims_dir.join(shim.name).with_extension("shim");
             let mut shim_file = std::fs::File::create(&shim_file_path)?;
             use std::io::Write;
-            writeln!(shim_file, "path = {}", version_dir.join(shim.real_name).display())?;
+            writeln!(
+                shim_file,
+                "path = {}",
+                version_dir.join(shim.real_name).display()
+            )?;
             writeln!(shim_file, "args =")?;
         }
     }
@@ -165,7 +174,11 @@ pub fn remove(session: &Session, package: &Package) -> Fallible<()> {
                 for _shim_path in shim_paths {
                     if _shim_path.exists() {
                         if let Some(tx) = session.emitter() {
-                            let shim_name = _shim_path.file_name().unwrap().to_string_lossy().to_string();
+                            let shim_name = _shim_path
+                                .file_name()
+                                .unwrap()
+                                .to_string_lossy()
+                                .to_string();
                             let _ = tx.send(Event::PackageShimRemoveProgress(shim_name));
                         }
                         let _ = std::fs::remove_file(&_shim_path);
@@ -181,7 +194,6 @@ pub fn remove(session: &Session, package: &Package) -> Fallible<()> {
                             let name = path.file_name().unwrap().to_str().unwrap();
                             name.starts_with(&base_name) && name != base_name
                         })
-
                         .collect::<Vec<_>>();
 
                     if !alt_shims.is_empty() {

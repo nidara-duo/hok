@@ -26,7 +26,10 @@ pub fn unlink(session: &Session, package: &Package) -> Fallible<()> {
     Ok(())
 }
 
-pub(crate) fn unlink_paths(persist_path: std::path::PathBuf, persists: &[Vec<String>]) -> Fallible<()> {
+pub(crate) fn unlink_paths(
+    persist_path: std::path::PathBuf,
+    persists: &[Vec<String>],
+) -> Fallible<()> {
     for persist in persists {
         assert!(!persist.is_empty());
 
