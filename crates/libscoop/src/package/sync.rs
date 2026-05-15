@@ -465,8 +465,7 @@ pub fn install(session: &Session, queries: &[&str], options: &[SyncOption]) -> F
     }
 
     debug!("Downloading packages...");
-    let mut set =
-        download::PackageSet::new(session, &packages, reuse_cache)?;
+    let mut set = download::PackageSet::new(session, &packages, reuse_cache)?;
     if !options.contains(&SyncOption::Offline) {
         if let Some(tx) = session.emitter() {
             let _ = tx.send(Event::PackageDownloadSizingStart);
