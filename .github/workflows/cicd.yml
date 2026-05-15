@@ -15,9 +15,6 @@ jobs:
   ci_style_check:
     name: Code Style Check
     runs-on: windows-latest
-    env:
-      SCCACHE_GHA_ENABLED: true
-      RUSTC_WRAPPER: sccache
     steps:
       - name: Checkout Source
         uses: actions/checkout@v4
@@ -28,14 +25,11 @@ jobs:
           toolchain: stable
           components: clippy, rustfmt
 
-      - name: Cache Setup
-        uses: mozilla-actions/sccache-action@v0.0.6
-
       - name: Format Check
         run: cargo fmt -- --check
 
       - name: Clippy Check
-        run: cargo clippy
+        run: cargo clippy -- -D warnings
 
   # tests and build
   ci_test_build:
