@@ -1,10 +1,6 @@
 #![allow(unused_assignments)]
 use clap::{ArgAction, Parser};
-use crossterm::{
-    cursor,
-    style::Stylize,
-    ExecutableCommand,
-};
+use crossterm::{cursor, style::Stylize, ExecutableCommand};
 use libscoop::{operation, Event, Session, SyncOption};
 
 use crate::{cui, util, Result};
@@ -110,7 +106,9 @@ pub fn execute(args: Args, session: &Session) -> Result<()> {
                     if let Some(s) = status.take() {
                         s.success("Resolved packages");
                     }
-                    status = Some(crate::cui::StatusLine::start("Calculating download size..."));
+                    status = Some(crate::cui::StatusLine::start(
+                        "Calculating download size...",
+                    ));
                 }
                 Event::PackageDownloadProgress(ctx) => {
                     dlprogress.update(
@@ -212,7 +210,9 @@ pub fn execute(args: Args, session: &Session) -> Result<()> {
                 }
                 Event::PackageDownloadDone => {}
                 Event::PackageIntegrityCheckStart => {
-                    status = Some(crate::cui::StatusLine::start("Checking package integrity..."));
+                    status = Some(crate::cui::StatusLine::start(
+                        "Checking package integrity...",
+                    ));
                 }
                 Event::PackageIntegrityCheckDone => {
                     if let Some(s) = status.take() {

@@ -1,9 +1,5 @@
 use indicatif::{MultiProgress, ProgressBar, ProgressStyle};
-use std::{
-    collections::HashMap,
-    io::{Write},
-    time::Duration,
-};
+use std::{collections::HashMap, io::Write, time::Duration};
 
 static BAR_FMT: &str = " {wide_msg} {total_bytes:>12} [{bar:>20}] {percent:>3}%";
 
@@ -141,14 +137,16 @@ impl StatusLine {
 
     /// Stops the spinner and prints "✓ <msg>".
     pub fn success(self, msg: impl Into<String>) {
-        self.pb.set_style(ProgressStyle::with_template("{msg}").unwrap());
+        self.pb
+            .set_style(ProgressStyle::with_template("{msg}").unwrap());
         self.pb.finish_with_message(format!("✓ {}", msg.into()));
     }
 
     #[allow(dead_code)]
     /// Stops the spinner and prints "✗ <msg>".
     pub fn fail(self, msg: impl Into<String>) {
-        self.pb.set_style(ProgressStyle::with_template("{msg}").unwrap());
+        self.pb
+            .set_style(ProgressStyle::with_template("{msg}").unwrap());
         self.pb.finish_with_message(format!("✗ {}", msg.into()));
     }
 }
