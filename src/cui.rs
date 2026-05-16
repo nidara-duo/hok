@@ -1,18 +1,13 @@
-use crossterm::{
-    cursor,
-    style::{Print, Stylize},
-    terminal::{Clear, ClearType},
-    ExecutableCommand,
-};
 use indicatif::{MultiProgress, ProgressBar, ProgressStyle};
 use std::{
     collections::HashMap,
-    io::{stdout, Write},
+    io::{Write},
+    time::Duration,
 };
 
 static BAR_FMT: &str = " {wide_msg} {total_bytes:>12} [{bar:>20}] {percent:>3}%";
 
-/// Multiple progress bars with own context.
+/// Multiple progress bars for concurrent package downloads.
 pub struct MultiProgressUI {
     mp: MultiProgress,
     ctx: HashMap<String, HashMap<String, (u64, u64)>>,
@@ -28,23 +23,30 @@ impl MultiProgressUI {
         }
     }
 
-    /// Update progress bar with the given context.
-    pub fn update(&mut self, ident: String, url: String, _: String, dltotal: u64, dlnow: u64) {
+    /// Update or create a progress bar for the given package download.
+    pub fn update(
+        &mut self,
+        ident: String,
+        _url: String,
+        _filename: String,
+        dltotal: u64,
+        dlnow: u64,
+    ) {
         if dltotal == 0 {
             return;
         }
 
-        let mut total = 0;
-        let mut now = 0;
+        let mut total = 0u64;
+        let mut now = 0u64;
 
         self.ctx
             .entry(ident.clone())
             .and_modify(|inner| {
-                inner.insert(url.clone(), (dltotal, dlnow));
+                inner.insert(_url.clone(), (dltotal, dlnow));
             })
-            .or_insert({
+            .or_insert_with(|| {
                 let mut ctx = HashMap::new();
-                ctx.insert(url.clone(), (dltotal, dlnow));
+                ctx.insert(_url.clone(), (dltotal, dlnow));
                 ctx
             })
             .iter()
@@ -58,7 +60,6 @@ impl MultiProgressUI {
             .and_modify(|bar| {
                 bar.set_length(total);
                 bar.set_position(now);
-
                 if total == now {
                     bar.finish();
                 }
@@ -78,76 +79,77 @@ impl MultiProgressUI {
     }
 }
 
-/// Simple UI for bucket update progress
-pub struct BucketUpdateUI {
-    pub data: HashMap<String, BucketState>,
-    pub cursor: usize,
+/// Creates a standard hok spinner with the given initial message.
+/// Call pb.set_style(ProgressStyle::with_template("{msg}").unwrap())
+/// before pb.finish_with_message() to hide the spinner char on completion.
+pub fn make_spinner(msg: impl Into<String>) -> ProgressBar {
+    let pb = ProgressBar::new_spinner();
+    pb.set_style(
+        ProgressStyle::with_template("{spinner:.cyan} {msg}")
+            .unwrap()
+            .tick_strings(&["⠋", "⠙", "⠹", "⠸", "⠼", "⠴", "⠦", "⠧", "⠇", "⠏"]),
+    );
+    pb.set_message(msg.into());
+    pb.enable_steady_tick(Duration::from_millis(80));
+    pb
 }
 
-/// Bucket update state
-pub enum BucketState {
-    Started,
-    Failed(String),
-    Successed,
+/// Finishes a spinner with a success message (✓ prefix, no spinner char).
+pub fn spinner_success(pb: &ProgressBar, msg: impl Into<String>) {
+    pb.set_style(ProgressStyle::with_template("{msg}").unwrap());
+    pb.finish_with_message(msg.into());
 }
 
-impl BucketUpdateUI {
-    pub fn new() -> BucketUpdateUI {
-        BucketUpdateUI {
-            data: HashMap::new(),
-            cursor: 0,
-        }
+/// Finishes a spinner with an error message (✗ prefix, no spinner char).
+pub fn spinner_error(pb: &ProgressBar, msg: impl Into<String>) {
+    pb.set_style(ProgressStyle::with_template("{msg}").unwrap());
+    pb.finish_with_message(msg.into());
+}
+
+/// A single-line status indicator that shows a spinner while active
+/// and replaces it with ✓ or ✗ on completion.
+///
+/// Usage:
+///   let s = StatusLine::start("Resolving packages");
+///   // ... work happens ...
+///   s.success("Resolving packages");   // prints "✓ Resolving packages"
+///   // or:
+///   s.fail("Resolving packages");      // prints "✗ Resolving packages"
+pub struct StatusLine {
+    pub pb: ProgressBar,
+}
+
+impl StatusLine {
+    /// Creates a spinner with the given message and starts animating it.
+    pub fn start(msg: impl Into<String>) -> Self {
+        let pb = ProgressBar::new_spinner();
+        pb.set_style(
+            ProgressStyle::with_template("{spinner:.cyan} {msg}")
+                .unwrap()
+                .tick_strings(&["⠋", "⠙", "⠹", "⠸", "⠼", "⠴", "⠦", "⠧", "⠇", "⠏"]),
+        );
+        pb.set_message(msg.into());
+        pb.enable_steady_tick(Duration::from_millis(80));
+        StatusLine { pb }
     }
 
-    /// Add a bucket progress to the UI.
-    pub fn add(&mut self, name: &str) {
-        self.data.insert(name.to_owned(), BucketState::Started);
-        self.draw();
+    #[allow(dead_code)]
+    /// Updates the live message while spinner is running.
+    pub fn update(&self, msg: impl Into<String>) {
+        self.pb.set_message(msg.into());
     }
 
-    /// Set the bucket progress to failed.
-    pub fn fail(&mut self, name: &str, msg: &str) {
-        self.data
-            .insert(name.to_owned(), BucketState::Failed(msg.to_owned()));
-        self.draw();
+    /// Stops the spinner and prints "✓ <msg>".
+    pub fn success(self, msg: impl Into<String>) {
+        self.pb.set_style(ProgressStyle::with_template("{msg}").unwrap());
+        self.pb.finish_with_message(format!("✓ {}", msg.into()));
     }
 
-    /// Set the bucket progress to successed.
-    pub fn succeed(&mut self, name: &str) {
-        self.data.insert(name.to_owned(), BucketState::Successed);
-        self.draw();
-    }
-
-    /// Draw the progress to the stdout.
-    pub fn draw(&mut self) {
-        let mut stdout = stdout();
-        let mut sorted = self.data.iter().collect::<Vec<_>>();
-        sorted.sort_by_key(|&(k, _)| k.clone());
-
-        for (name, state) in sorted.iter() {
-            let _ = match state {
-                BucketState::Started => stdout
-                    .execute(Clear(ClearType::CurrentLine))
-                    .unwrap()
-                    .execute(Print(format!("{}\n", name)))
-                    .unwrap(),
-                BucketState::Successed => stdout
-                    .execute(Clear(ClearType::CurrentLine))
-                    .unwrap()
-                    .execute(Print(format!("{} {}\n", name, "Ok".green())))
-                    .unwrap(),
-                BucketState::Failed(_err) => stdout
-                    .execute(Clear(ClearType::CurrentLine))
-                    .unwrap()
-                    .execute(Print(format!("{} {}\n", name, "Err".red())))
-                    .unwrap(),
-            };
-        }
-
-        // move cursor back to the first line
-        stdout
-            .execute(cursor::MoveToPreviousLine(sorted.len() as u16))
-            .unwrap();
+    #[allow(dead_code)]
+    /// Stops the spinner and prints "✗ <msg>".
+    pub fn fail(self, msg: impl Into<String>) {
+        self.pb.set_style(ProgressStyle::with_template("{msg}").unwrap());
+        self.pb.finish_with_message(format!("✗ {}", msg.into()));
     }
 }
 

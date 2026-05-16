@@ -231,6 +231,7 @@ impl<'a> PackageSet<'a> {
 
                 let mut easy = Easy::new();
                 easy.get(true)?;
+                easy.buffer_size(1024 * 1024)?;
                 easy.url(dlinfo.url)?;
                 easy.follow_location(true)?;
                 easy.useragent(user_agent)?;
@@ -348,6 +349,7 @@ impl<'a> PackageSet<'a> {
             for (uidx, (url, filename)) in urls.iter().zip(filenames.iter()).enumerate() {
                 let mut easy = Easy::new();
                 easy.get(true)?;
+                easy.buffer_size(1024 * 1024)?;
                 easy.url(url)?;
                 easy.follow_location(true)?;
                 easy.nobody(true)?;
@@ -422,7 +424,7 @@ impl<'a> PackageSet<'a> {
             }
 
             if alive {
-                self.multi.wait(&mut [], Duration::from_secs(5))?;
+                self.multi.wait(&mut [], Duration::from_millis(50))?;
             }
         }
 

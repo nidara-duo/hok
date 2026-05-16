@@ -464,6 +464,23 @@ pub fn install(session: &Session, queries: &[&str], options: &[SyncOption]) -> F
         return Ok(());
     }
 
+    // Always emit upgrade plan so CLI can display version transitions
+    {
+        let mut plan = vec![];
+        if let Some(upgrades) = transaction.upgrade_view() {
+            for pkg in upgrades {
+                if let (Some(old), Some(new)) = (pkg.installed_version(), pkg.upgradable_version()) {
+                    plan.push((pkg.name().to_owned(), old.to_owned(), new.to_owned()));
+                }
+            }
+        }
+        if !plan.is_empty() {
+            if let Some(tx) = session.emitter() {
+                let _ = tx.send(Event::PackageUpgradePlan(plan));
+            }
+        }
+    }
+
     debug!("Downloading packages...");
     let mut set = download::PackageSet::new(session, &packages, reuse_cache)?;
     if !options.contains(&SyncOption::Offline) {

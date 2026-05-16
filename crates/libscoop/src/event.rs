@@ -162,6 +162,9 @@ pub enum Event {
     /// Package sync operation has finished.
     PackageSyncDone,
 
+    /// Package upgrade plan.
+    PackageUpgradePlan(Vec<(String, String, String)>),
+
     /// No changes needed.
     PackageNoOp,
 

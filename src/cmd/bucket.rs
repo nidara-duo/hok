@@ -1,9 +1,8 @@
 use clap::{ArgAction, Parser, Subcommand};
 use crossterm::style::Stylize;
 use libscoop::{operation, Session};
-use std::io::{stdout, Write};
 
-use crate::Result;
+use crate::{cui, Result};
 
 /// Manage manifest buckets
 #[derive(Debug, Parser)]
@@ -42,13 +41,27 @@ pub enum Command {
 pub fn execute(args: Args, session: &Session) -> Result<()> {
     match args.command {
         Command::Add { name, repo } => {
-            print!("Adding bucket {}... ", name);
-            let _ = stdout().flush();
+            let pb = cui::make_spinner(format!("Adding bucket '{}'...", name));
             let repo = repo.as_deref().unwrap_or_default();
-            match operation::bucket_add(session, name.as_str(), repo) {
-                Ok(..) => println!("{}", "Ok".green()),
+
+            // Progress callback: updates pb message with object counts
+            let pb_clone = pb.clone();
+            let bucket_name = name.clone();
+            let mut progress_cb = move |received: usize, total: usize| {
+                if total > 0 {
+                    pb_clone.set_message(format!(
+                        "Cloning '{}'... [{} / {} objects]",
+                        bucket_name, received, total
+                    ));
+                }
+            };
+
+            match operation::bucket_add(session, name.as_str(), repo, Some(&mut progress_cb)) {
+                Ok(..) => {
+                    cui::spinner_success(&pb, format!("✓ Bucket '{}' added successfully.", name));
+                }
                 Err(err) => {
-                    println!("{}", "Err".red());
+                    cui::spinner_error(&pb, format!("✗ Failed to add bucket '{}'.", name));
                     return Err(err.into());
                 }
             }
@@ -79,12 +92,14 @@ pub fn execute(args: Args, session: &Session) -> Result<()> {
         }
         Command::Remove { name } => {
             for name in name {
-                print!("Removing bucket {}... ", name);
-                let _ = stdout().flush();
+                let pb = cui::make_spinner(format!("Removing bucket '{}'...", name));
+
                 match operation::bucket_remove(session, name.as_str()) {
-                    Ok(..) => println!("{}", "Ok".green()),
+                    Ok(..) => {
+                        cui::spinner_success(&pb, format!("✓ Bucket '{}' removed.", name));
+                    }
                     Err(err) => {
-                        println!("{}", "Err".red());
+                        cui::spinner_error(&pb, format!("✗ Failed to remove bucket '{}'.", name));
                         return Err(err.into());
                     }
                 }

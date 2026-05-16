@@ -2,7 +2,6 @@ use clap::{ArgAction, Parser};
 use crossterm::{
     cursor,
     style::Stylize,
-    terminal::{Clear, ClearType},
     ExecutableCommand,
 };
 use libscoop::{operation, Event, Session, SyncOption};
@@ -68,57 +67,47 @@ pub fn execute(args: Args, session: &Session) -> Result<()> {
     let mut dlprogress = cui::MultiProgressUI::new();
 
     let handle = std::thread::spawn(move || -> Result<()> {
+        let mut status: Option<crate::cui::StatusLine> = None;
         while let Ok(event) = rx.recv() {
             match event {
-                Event::PackageResolveStart => println!("Resolving packages..."),
-                Event::PackageDownloadSizingStart => println!("Calculating download size..."),
-                Event::PackageDownloadStart => println!("Downloading packages..."),
+                Event::PackageUpgradePlan(plan) => {
+                    for (name, old_ver, new_ver) in &plan {
+                        let msg = format!(
+                            "Upgrading '{}' ({} -> {})",
+                            name.as_str().green(),
+                            old_ver.as_str().dark_grey(),
+                            new_ver.as_str().cyan(),
+                        );
+                        if let Some(ref s) = status {
+                            s.pb.println(msg);
+                        } else {
+                            println!("{}", msg);
+                        }
+                    }
+                }
+                Event::PackageResolveStart => {
+                    status = Some(crate::cui::StatusLine::start("Resolving packages..."));
+                }
+                Event::PackageDownloadSizingStart => {
+                    if let Some(s) = status.take() {
+                        s.success("Resolved packages");
+                    }
+                    status = Some(crate::cui::StatusLine::start("Calculating download size..."));
+                }
                 Event::PackageDownloadProgress(ctx) => {
-                    let ident = ctx.ident.to_owned();
-                    let url = ctx.url.to_owned();
-                    let filename = ctx.filename.to_owned();
-                    let dltotal = ctx.dltotal;
-                    let dlnow = ctx.dlnow;
-                    dlprogress.update(ident, url, filename, dltotal, dlnow);
-                }
-                Event::PackageDownloadDone => {}
-                Event::PackageIntegrityCheckStart => println!("Checking package integrity..."),
-                Event::PackageIntegrityCheckProgress(ctx) => {
-                    let mut stdout = std::io::stdout();
-                    stdout
-                        .execute(cursor::MoveToPreviousLine(1))
-                        .unwrap()
-                        .execute(Clear(ClearType::CurrentLine))
-                        .unwrap();
-                    println!("Checking package integrity...{}", ctx.dark_grey());
-                }
-                Event::PackageIntegrityCheckDone => {
-                    let mut stdout = std::io::stdout();
-                    stdout
-                        .execute(cursor::MoveToPreviousLine(1))
-                        .unwrap()
-                        .execute(Clear(ClearType::CurrentLine))
-                        .unwrap();
-                    println!("Checking package integrity...{}", "Ok".green());
-                }
-                Event::PackageNotFound(name) => {
-                    println!("Package '{}' not found.", name);
-                    return Ok(());
-                }
-                Event::PackageNoOp => {
-                    println!("Already up to date.");
+                    dlprogress.update(
+                        ctx.ident.to_owned(),
+                        ctx.url.to_owned(),
+                        ctx.filename.to_owned(),
+                        ctx.dltotal,
+                        ctx.dlnow,
+                    );
                 }
                 Event::PromptTransactionNeedConfirm(transaction) => {
-                    let has_install = transaction.install_view().is_some();
-                    let has_upgrade = transaction.upgrade_view().is_some();
-                    let has_replace = transaction.replace_view().is_some();
-
-                    if !has_install && !has_upgrade && !has_replace {
-                        println!("Already up to date.");
-                        let _ = tx.send(Event::PromptTransactionNeedConfirmResult(false));
-                        continue;
+                    if let Some(s) = status.take() {
+                        s.success("Calculated download size");
                     }
-
+                    // ... (rest of confirm handling)
                     if let Some(install) = transaction.install_view() {
                         println!("The following packages will be INSTALLED:");
                         let output = install
@@ -135,9 +124,8 @@ pub fn execute(args: Args, session: &Session) -> Result<()> {
                             .join("  ");
                         println!("  {}", output);
                     }
-
                     if let Some(upgrade) = transaction.upgrade_view() {
-                        if has_install {
+                        if transaction.install_view().is_some() {
                             println!();
                         }
                         println!("The following packages will be UPGRADED:");
@@ -155,9 +143,10 @@ pub fn execute(args: Args, session: &Session) -> Result<()> {
                             .join("  ");
                         println!("  {}", output);
                     }
-
                     if let Some(replace) = transaction.replace_view() {
-                        if has_install || has_upgrade {
+                        if transaction.install_view().is_some()
+                            || transaction.upgrade_view().is_some()
+                        {
                             println!();
                         }
                         println!("The following packages will be REPLACED:");
@@ -175,7 +164,6 @@ pub fn execute(args: Args, session: &Session) -> Result<()> {
                             .join("  ");
                         println!("  {}", output);
                     }
-
                     if let Some(download_size) = transaction.download_size() {
                         let out = util::humansize(download_size.total, true);
                         if download_size.total > 0 {
@@ -198,6 +186,20 @@ pub fn execute(args: Args, session: &Session) -> Result<()> {
                     let answer = cui::prompt_yes_no();
                     let _ = tx.send(Event::PromptTransactionNeedConfirmResult(answer));
                     let _ = stdout.execute(cursor::Hide);
+                }
+                Event::PackageDownloadStart => {
+                    if let Some(s) = status.take() {
+                        s.success("Calculated download size");
+                    }
+                }
+                Event::PackageDownloadDone => {}
+                Event::PackageIntegrityCheckStart => {
+                    status = Some(crate::cui::StatusLine::start("Checking package integrity..."));
+                }
+                Event::PackageIntegrityCheckDone => {
+                    if let Some(s) = status.take() {
+                        s.success("Integrity check passed");
+                    }
                 }
                 Event::PackageSyncDone => break,
                 _ => {}

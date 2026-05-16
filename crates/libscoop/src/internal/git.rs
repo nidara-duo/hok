@@ -41,14 +41,35 @@ fn fetch_options(proxy: Option<&str>) -> FetchOptions<'static> {
     fo
 }
 
-pub fn clone_repo<S, P>(remote_url: S, path: P, proxy: Option<S>) -> Fallible<()>
+pub fn clone_repo<S, P>(
+    remote_url: S,
+    path: P,
+    proxy: Option<S>,
+    mut on_progress: Option<&mut dyn FnMut(usize, usize)>,
+) -> Fallible<()>
 where
     S: AsRef<str>,
     P: AsRef<Path>,
 {
     let proxy = proxy.as_ref().map(|s| s.as_ref());
+    let mut fetch_opts = fetch_options(proxy);
+    fetch_opts.depth(1);
+    fetch_opts.download_tags(git2::AutotagOption::None);
+
+    if let Some(cb) = on_progress.as_mut() {
+        let cb_ptr = cb as *mut dyn FnMut(usize, usize);
+        let mut remote_callbacks = git2::RemoteCallbacks::new();
+        remote_callbacks.transfer_progress(move |stats| {
+            let received = stats.received_objects();
+            let total = stats.total_objects();
+            unsafe { (*cb_ptr)(received, total) };
+            true
+        });
+        fetch_opts.remote_callbacks(remote_callbacks);
+    }
+
     let mut repo_builder = git2::build::RepoBuilder::new();
-    repo_builder.fetch_options(fetch_options(proxy));
+    repo_builder.fetch_options(fetch_opts);
 
     repo_builder
         .clone(remote_url.as_ref(), path.as_ref())

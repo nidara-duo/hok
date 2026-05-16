@@ -52,7 +52,12 @@ pub fn package_cleanup(
 /// url is not specified when adding a non built-in bucket.
 ///
 /// A git error will be returned if failed to clone the bucket.
-pub fn bucket_add(session: &Session, name: &str, remote_url: &str) -> Fallible<()> {
+pub fn bucket_add(
+    session: &Session,
+    name: &str,
+    remote_url: &str,
+    on_progress: Option<&mut dyn FnMut(usize, usize)>,
+) -> Fallible<()> {
     let config = session.config();
     let mut path = config.root_path().to_owned();
     path.push("buckets");
@@ -74,7 +79,7 @@ pub fn bucket_add(session: &Session, name: &str, remote_url: &str) -> Fallible<(
             .ok_or_else(|| Error::BucketAddRemoteRequired(name.to_owned()))?,
     };
 
-    internal::git::clone_repo(remote_url, path, proxy)
+    internal::git::clone_repo(remote_url, path, proxy, on_progress)
 }
 
 /// Get a list of added buckets.
