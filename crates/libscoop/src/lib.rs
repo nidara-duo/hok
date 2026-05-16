@@ -39,6 +39,7 @@ mod env;
 mod error;
 mod event;
 mod internal;
+pub mod inventory;
 pub mod operation;
 pub mod package;
 mod persist;
@@ -50,6 +51,7 @@ pub mod status;
 
 pub use error::Error;
 pub use event::Event;
+pub use inventory::{collect_package_states, PackageState, PackageStateFlag};
 pub use package::{CleanupOption, QueryOption, SyncOption};
 pub use session::Session;
 pub use status::{collect_status, StatusEntry, StatusInfoFlag, StatusReport};

@@ -2,6 +2,8 @@ use clap::{ArgAction, Parser, Subcommand};
 use libscoop::{operation, Session};
 
 use crate::{util, Result};
+use comfy_table::presets::NOTHING;
+use comfy_table::{Attribute, Cell, Color, Table};
 
 /// Package cache management
 #[derive(Debug, Parser)]
@@ -38,25 +40,48 @@ pub fn execute(args: Args, session: &Session) -> Result<()> {
             let mut total_size: u64 = 0;
             let total_count = files.len();
 
+            let mut table = Table::new();
+            table.load_preset(NOTHING);
+            let header_cells =
+                vec!["Name", "Version", "Filename", "Size"]
+                    .into_iter()
+                    .map(|title| {
+                        Cell::new(title)
+                            .add_attribute(Attribute::Bold)
+                            .fg(Color::Green)
+                    });
+
+            table.set_header(header_cells);
+
             for f in files.into_iter() {
                 let size = f.path().metadata()?.len();
                 total_size += size;
 
-                println!(
-                    "{:>8} {} ({}) {:>}",
-                    util::humansize(size, true),
-                    f.package_name(),
-                    f.version(),
-                    f.file_name()
-                );
+                table.add_row(vec![
+                    Cell::new(f.package_name()),
+                    Cell::new(f.version().to_string()),
+                    Cell::new(f.file_name()).add_attribute(Attribute::Dim),
+                    Cell::new(util::humansize(size, true)).fg(Color::Green),
+                ]);
             }
+            table.add_row(vec!["", "", "", ""]);
+            table.add_row(vec![
+                Cell::new("Total:")
+                    .add_attribute(Attribute::Bold)
+                    .set_alignment(comfy_table::CellAlignment::Right),
+                Cell::new(format!("{} files", total_count)),
+                Cell::new(""),
+                Cell::new(util::humansize(total_size, true)).add_attribute(Attribute::Bold),
+            ]);
+            if total_count > 0 {
+                // if let Some(column) = table.column_mut(0) {
+                //     column.set_cell_alignment(CellAlignment::Right);
+                // }
 
-            println!(
-                "{:>8} {} files, {}",
-                "Total:",
-                total_count,
-                util::humansize(total_size, true)
-            );
+                println!("{table}");
+            } else {
+                println!("No files found in cache.");
+            }
 
             Ok(())
         }

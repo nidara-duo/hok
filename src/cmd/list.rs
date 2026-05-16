@@ -1,6 +1,7 @@
 use clap::{ArgAction, Parser};
-use crossterm::style::Stylize;
-use libscoop::{operation, QueryOption, Session};
+use comfy_table::presets::NOTHING;
+use comfy_table::{Attribute, Cell, Color, Table};
+use libscoop::{collect_package_states, PackageStateFlag, Session};
 
 use crate::Result;
 
@@ -22,44 +23,92 @@ pub struct Args {
 }
 
 pub fn execute(args: Args, session: &Session) -> Result<()> {
-    let queries = args.query.iter().map(|s| s.as_str()).collect::<Vec<_>>();
-    let mut options = vec![];
-
-    if args.explicit {
-        options.push(QueryOption::Explicit);
-    }
-
-    if args.upgradable {
-        options.push(QueryOption::Upgradable);
-    }
-
-    match operation::package_query(session, queries, options, true) {
+    match collect_package_states(session) {
         Err(e) => Err(e.into()),
-        Ok(packages) => {
-            for pkg in packages {
-                let mut output = String::new();
-                output.push_str(
-                    format!("{}/{} {}", pkg.name(), pkg.bucket().green(), pkg.version()).as_str(),
-                );
+        Ok(states) => {
+            let mut table = Table::new();
 
-                let held = pkg.is_held();
-                if args.held && !held {
+            table.load_preset(NOTHING);
+
+            let header_cells = vec!["Bucket", "Name", "Version", "Available", "Status"]
+                .into_iter()
+                .map(|title| {
+                    Cell::new(title)
+                        .add_attribute(Attribute::Bold)
+                        .fg(Color::Green)
+                });
+
+            table.set_header(header_cells);
+
+            let mut has_rows = false;
+
+            for state in states {
+                // Apply filters
+                if args.held && !state.held {
+                    continue;
+                }
+                if args.upgradable && !state.flags.contains(&PackageStateFlag::Outdated) {
                     continue;
                 }
 
-                let upgradable = pkg.upgradable_version();
-                if args.upgradable {
-                    if let Some(upgradable) = upgradable {
-                        output.push_str(format!(" -> {}", upgradable.blue()).as_str());
+                // Optional regex query matching
+                if !args.query.is_empty() {
+                    let matches = args.query.iter().any(|q| {
+                        if args.explicit {
+                            state.name == *q
+                        } else {
+                            regex::Regex::new(q)
+                                .map(|r| r.is_match(&state.name))
+                                .unwrap_or(false)
+                        }
+                    });
+                    if !matches {
+                        continue;
                     }
                 }
 
-                if held {
-                    output.push_str(format!(" [{}]", "held".magenta()).as_str());
-                }
+                has_rows = true;
 
-                println!("{}", output);
+                let bucket_cell = Cell::new(state.bucket).fg(Color::Green);
+                let name_cell = Cell::new(state.name);
+
+                let version_cell = if state.held {
+                    Cell::new(state.installed_version.unwrap_or_default()).fg(Color::Blue)
+                } else if state.flags.contains(&PackageStateFlag::Outdated) {
+                    Cell::new(state.installed_version.unwrap_or_default())
+                        .add_attribute(Attribute::Dim)
+                } else {
+                    Cell::new(state.installed_version.unwrap_or_default())
+                };
+
+                let available_cell = match state.latest_version {
+                    Some(v) => Cell::new(v).fg(Color::Blue),
+                    None => Cell::new(""),
+                };
+
+                let status_cell = if state.held {
+                    Cell::new("held").fg(Color::Magenta)
+                } else if state.flags.contains(&PackageStateFlag::Outdated) {
+                    Cell::new("outdated").fg(Color::Yellow)
+                } else {
+                    Cell::new("✓").fg(Color::Green)
+                };
+
+                table.add_row(vec![
+                    bucket_cell,
+                    name_cell,
+                    version_cell,
+                    available_cell,
+                    status_cell,
+                ]);
             }
+
+            if has_rows {
+                println!("{table}");
+            } else {
+                println!("No packages found.");
+            }
+
             Ok(())
         }
     }
