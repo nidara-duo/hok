@@ -91,15 +91,19 @@ pub fn execute(args: Args, session: &Session) -> Result<()> {
                     Ok(buckets) => {
                         for bucket in buckets {
                             if bucket.is_held() {
-                                print!("{} [held]", bucket.name().green());
+                                print!("{} {}", bucket.name().yellow(), "[held]".dim());
                             } else {
                                 print!("{}", bucket.name().green());
                             }
-                            println!(
-                                "\n ├─manifests: {}\n └─source: {}",
-                                bucket.manifest_count(),
-                                bucket.source(),
-                            );
+                            let manifests_str =
+                                format!(" ├─manifests: {}", bucket.manifest_count());
+                            let source_str = format!(" └─source: {}", bucket.source());
+
+                            if bucket.is_held() {
+                                println!("\n{}\n{}", manifests_str.dim(), source_str.dim());
+                            } else {
+                                println!("\n{}\n{}", manifests_str, source_str);
+                            };
                         }
                         Ok(())
                     }

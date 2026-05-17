@@ -79,10 +79,14 @@ pub fn execute(args: Args, session: &Session) -> Result<()> {
                 } else {
                     state.bucket.to_owned()
                 };
-                let bucket_cell = Cell::new(bucket_display).fg(Color::Green);
+                let bucket_cell = if held_buckets.contains(&state.bucket) {
+                    Cell::new(bucket_display).fg(Color::Yellow)
+                } else {
+                    Cell::new(bucket_display).fg(Color::Green)
+                };
                 let name_cell = Cell::new(state.name);
 
-                let version_cell = if state.held {
+                let version_cell = if state.held || held_buckets.contains(&state.bucket) {
                     Cell::new(state.installed_version.unwrap_or_default()).fg(Color::Blue)
                 } else if state.flags.contains(&PackageStateFlag::Outdated) {
                     Cell::new(state.installed_version.unwrap_or_default())
