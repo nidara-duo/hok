@@ -80,7 +80,9 @@ pub fn execute(args: Args, session: &Session) -> Result<()> {
                     state.bucket.to_owned()
                 };
                 let bucket_cell = if held_buckets.contains(&state.bucket) {
-                    Cell::new(bucket_display).fg(Color::Yellow)
+                    Cell::new(bucket_display)
+                        .fg(Color::Yellow)
+                        .add_attribute(Attribute::Dim)
                 } else {
                     Cell::new(bucket_display).fg(Color::Green)
                 };
