@@ -36,6 +36,18 @@ pub enum Command {
         #[arg(required = true, action = ArgAction::Append)]
         name: Vec<String>,
     },
+    /// Hold bucket(s) to exclude them from updates
+    Hold {
+        /// Name(s) of the bucket(s) to hold
+        #[arg(required = true, action = ArgAction::Append)]
+        names: Vec<String>,
+    },
+    /// Unhold bucket(s) to resume updates
+    Unhold {
+        /// Name(s) of the bucket(s) to unhold
+        #[arg(required = true, action = ArgAction::Append)]
+        names: Vec<String>,
+    },
 }
 
 pub fn execute(args: Args, session: &Session) -> Result<()> {
@@ -78,9 +90,13 @@ pub fn execute(args: Args, session: &Session) -> Result<()> {
                     Err(e) => Err(e.into()),
                     Ok(buckets) => {
                         for bucket in buckets {
+                            if bucket.is_held() {
+                                print!("{} [held]", bucket.name().green());
+                            } else {
+                                print!("{}", bucket.name().green());
+                            }
                             println!(
-                                "{}\n ├─manifests: {}\n └─source: {}",
-                                bucket.name().green(),
+                                "\n ├─manifests: {}\n └─source: {}",
                                 bucket.manifest_count(),
                                 bucket.source(),
                             );
@@ -103,6 +119,20 @@ pub fn execute(args: Args, session: &Session) -> Result<()> {
                         return Err(err.into());
                     }
                 }
+            }
+            Ok(())
+        }
+        Command::Hold { names } => {
+            for name in &names {
+                operation::bucket_hold(session, name)?;
+                println!("Bucket '{}' is now held.", name);
+            }
+            Ok(())
+        }
+        Command::Unhold { names } => {
+            for name in &names {
+                operation::bucket_unhold(session, name)?;
+                println!("Bucket '{}' is now free.", name);
             }
             Ok(())
         }

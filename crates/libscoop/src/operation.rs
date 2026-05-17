@@ -82,6 +82,58 @@ pub fn bucket_add(
     internal::git::clone_repo(remote_url, path, proxy, on_progress)
 }
 
+/// Hold a bucket to skip it on update.
+///
+/// # Errors
+///
+/// This method will return an error if the bucket does not exist.
+pub fn bucket_hold(session: &Session, name: &str) -> Fallible<()> {
+    let buckets = bucket_list(session)?;
+    let bucket = buckets
+        .iter()
+        .find(|b| b.name() == name)
+        .ok_or_else(|| Error::BucketNotFound(name.to_owned()))?;
+
+    let hold_path = bucket.path().join(".hold");
+    if !hold_path.exists() {
+        std::fs::File::create(hold_path)?;
+    }
+    Ok(())
+}
+
+/// Unhold a bucket to resume updates.
+///
+/// # Errors
+///
+/// This method will return an error if the bucket does not exist.
+pub fn bucket_unhold(session: &Session, name: &str) -> Fallible<()> {
+    let buckets = bucket_list(session)?;
+    let bucket = buckets
+        .iter()
+        .find(|b| b.name() == name)
+        .ok_or_else(|| Error::BucketNotFound(name.to_owned()))?;
+
+    let hold_path = bucket.path().join(".hold");
+    if hold_path.exists() {
+        std::fs::remove_file(hold_path)?;
+    }
+    Ok(())
+}
+
+/// Get the names of all currently held buckets.
+///
+/// # Returns
+///
+/// A list of bucket names that have been held.
+pub fn bucket_held_names(session: &Session) -> Fallible<Vec<String>> {
+    let buckets = bucket_list(session)?;
+    Ok(buckets
+        .into_iter()
+        .filter(|b| b.is_held())
+        .map(|b| b.name().to_owned())
+        .collect())
+}
+
 /// Get a list of added buckets.
 ///
 /// # Returns
@@ -139,6 +191,11 @@ pub fn bucket_update(session: &Session) -> Fallible<()> {
     let emitter = session.emitter();
 
     for bucket in buckets.iter() {
+        if bucket.is_held() {
+            info!("Bucket '{}' is held, skipping update.", bucket.name());
+            continue;
+        }
+
         let repo = bucket.path().to_owned();
 
         // There is no remote url for this bucket, so we just ignore it.

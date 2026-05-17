@@ -75,6 +75,11 @@ impl Bucket {
         &self.path
     }
 
+    /// Check if the bucket is held.
+    pub fn is_held(&self) -> bool {
+        self.path().join(".hold").exists()
+    }
+
     /// Get manifest count of the bucket.
     ///
     /// # Returns

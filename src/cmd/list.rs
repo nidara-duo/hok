@@ -2,6 +2,7 @@ use clap::{ArgAction, Parser};
 use comfy_table::presets::NOTHING;
 use comfy_table::{Attribute, Cell, Color, Table};
 use libscoop::{collect_package_states, PackageStateFlag, Session};
+use std::collections::HashSet;
 
 use crate::Result;
 
@@ -26,6 +27,10 @@ pub fn execute(args: Args, session: &Session) -> Result<()> {
     match collect_package_states(session) {
         Err(e) => Err(e.into()),
         Ok(states) => {
+            let held_buckets: HashSet<String> = libscoop::operation::bucket_held_names(session)
+                .unwrap_or_default()
+                .into_iter()
+                .collect();
             let mut table = Table::new();
 
             table.load_preset(NOTHING);
@@ -69,7 +74,12 @@ pub fn execute(args: Args, session: &Session) -> Result<()> {
 
                 has_rows = true;
 
-                let bucket_cell = Cell::new(state.bucket).fg(Color::Green);
+                let bucket_display = if held_buckets.contains(&state.bucket) {
+                    format!("{} [held]", state.bucket)
+                } else {
+                    state.bucket.to_owned()
+                };
+                let bucket_cell = Cell::new(bucket_display).fg(Color::Green);
                 let name_cell = Cell::new(state.name);
 
                 let version_cell = if state.held {
