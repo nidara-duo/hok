@@ -90,7 +90,7 @@ pub fn execute(args: Args, session: &Session) -> Result<()> {
                     None => Cell::new(""),
                 };
                 let bucket_display = if held_buckets.contains(&state.bucket) {
-                    format!("{}", state.bucket)
+                    state.bucket.to_string()
                 } else {
                     state.bucket.to_owned()
                 };
