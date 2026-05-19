@@ -35,7 +35,7 @@ pub fn execute(args: Args, session: &Session) -> Result<()> {
 
             table.load_preset(NOTHING);
 
-            let header_cells = vec!["Bucket", "Name", "Version", "Available", "Status"]
+            let header_cells = vec!["Name", "Version", "Available", "Bucket", "Status"]
                 .into_iter()
                 .map(|title| {
                     Cell::new(title)
@@ -74,18 +74,6 @@ pub fn execute(args: Args, session: &Session) -> Result<()> {
 
                 has_rows = true;
 
-                let bucket_display = if held_buckets.contains(&state.bucket) {
-                    format!("{} [held]", state.bucket)
-                } else {
-                    state.bucket.to_owned()
-                };
-                let bucket_cell = if held_buckets.contains(&state.bucket) {
-                    Cell::new(bucket_display)
-                        .fg(Color::Yellow)
-                        .add_attribute(Attribute::Dim)
-                } else {
-                    Cell::new(bucket_display).fg(Color::Green)
-                };
                 let name_cell = Cell::new(state.name);
 
                 let version_cell = if state.held || held_buckets.contains(&state.bucket) {
@@ -101,20 +89,31 @@ pub fn execute(args: Args, session: &Session) -> Result<()> {
                     Some(v) => Cell::new(v).fg(Color::Blue),
                     None => Cell::new(""),
                 };
-
-                let status_cell = if state.held {
-                    Cell::new("held").fg(Color::Magenta)
+                let bucket_display = if held_buckets.contains(&state.bucket) {
+                    format!("{}", state.bucket)
+                } else {
+                    state.bucket.to_owned()
+                };
+                let bucket_cell = if held_buckets.contains(&state.bucket) {
+                    Cell::new(bucket_display)
+                        .fg(Color::Yellow)
+                        .add_attribute(Attribute::Dim)
+                } else {
+                    Cell::new(bucket_display).fg(Color::Green)
+                };
+                let status_cell = if state.held || held_buckets.contains(&state.bucket) {
+                    Cell::new("held").fg(Color::Yellow)
                 } else if state.flags.contains(&PackageStateFlag::Outdated) {
-                    Cell::new("outdated").fg(Color::Yellow)
+                    Cell::new("outdated").fg(Color::Magenta)
                 } else {
                     Cell::new("✓").fg(Color::Green)
                 };
 
                 table.add_row(vec![
-                    bucket_cell,
                     name_cell,
                     version_cell,
                     available_cell,
+                    bucket_cell,
                     status_cell,
                 ]);
             }
