@@ -1,10 +1,12 @@
+# ⚠️ ARCHIVED REPOSITORY
+
+This repository has been archived because the project has been completely rewritten from scratch using a different architecture.
+
+The code here is preserved for historical purposes only. No further updates, issues, or pull requests will be accepted.
+
 # hok (Turbo Edition)
 
 > Hok is a high-performance CLI implementation of [Scoop](https://scoop.sh/) written in Rust.
-
-[![cicd][cicd-badge]][cicd]
-[![crates-svg]][crates-url]
-[![license][license-badge]](LICENSE)
 
 ---
 
